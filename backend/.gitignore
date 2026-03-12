@@ -1,0 +1,52 @@
+# ─── Secrets ───────────────────────────────
+.env
+*.env
+.env.local
+.env.production
+
+# ─── Python ────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv*/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+
+# ─── Data Files ────────────────────────────
+data/
+*.parquet
+*.csv
+*.json.gz
+
+# ─── Build & Dist ──────────────────────────
+dist/
+build/
+*.egg
+
+# ─── Node / React / TypeScript ─────────────
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
+.npm/
+*.tsbuildinfo
+
+# ─── VS Code ───────────────────────────────
+.vscode/
+!.vscode/extensions.json
+
+# ─── OS ────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ──────────────────────────────────
+*.log
+logs/

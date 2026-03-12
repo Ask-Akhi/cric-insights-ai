@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  cric-insights:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cric-insights-ai:latest
+    container_name: cric-insights
+    restart: unless-stopped
+    ports:
+      - "8001:8001"   # FastAPI
+      - "8502:8502"   # Streamlit    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - LLM_MODEL=${LLM_MODEL:-gemini-2.0-flash-lite}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - APP_PASSWORD=${APP_PASSWORD:-}
+      - CRICSHEET_DATA_DIR=/app/data/cricsheet
+    volumes:
+      - cricsheet_data:/app/data/cricsheet   # persist data across restarts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  cricsheet_data:

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv*/
+venv/
+*.egg-info/
+
+# Secrets - NEVER include
+.env
+*.env
+
+# Data - too large for image (served from mounted volume at runtime)
+backend/data/
+backend/src/data/raw/
+backend/src/data/parquet/
+
+# Node
+node_modules/
+frontend/.env
+
+# Build artifacts
+frontend/dist/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Dev tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+*.log

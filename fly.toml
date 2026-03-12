@@ -1,0 +1,64 @@
+# fly.toml — Fly.io deployment config for Cric Insights AI
+# Deploy with: fly deploy
+# Docs: https://fly.io/docs/reference/configuration/
+
+app = "cric-insights-ai"
+primary_region = "sin"   # Singapore — closest to South Asia
+
+[build]
+  dockerfile = "Dockerfile"
+
+# ── Streamlit UI (public-facing) ──────────────────────────────────────────────
+[[services]]
+  internal_port = 8502
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.http_checks]]
+    interval = 30000
+    timeout = 10000
+    grace_period = "20s"
+    method = "get"
+    path = "/"
+    protocol = "http"
+
+# ── FastAPI backend (also exposed for direct API access) ──────────────────────
+[[services]]
+  internal_port = 8001
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 8001
+    handlers = ["http"]
+
+  [[services.http_checks]]
+    interval = 30000
+    timeout = 10000
+    grace_period = "20s"
+    method = "get"
+    path = "/api/health"
+    protocol = "http"
+
+# ── Compute ───────────────────────────────────────────────────────────────────
+[vm]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+# ── Persistent volume for Cricsheet data ─────────────────────────────────────
+# Create with: fly volumes create cricsheet_data --size 2 --region sin
+[[mounts]]
+  source = "cricsheet_data"
+  destination = "/app/data/cricsheet"

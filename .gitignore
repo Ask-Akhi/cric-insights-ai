@@ -1,0 +1,62 @@
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+.env
+*.env
+.env.local
+.env.production
+backend/.env
+backend/.env.local
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv*/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+
+# ─── Data (large — never commit raw/parquet cricket data) ─────────────────────
+backend/data/
+backend/src/data/raw/
+backend/src/data/parquet/
+*.parquet
+*.csv
+*.json.gz
+*.zip
+
+# ─── Node / React ─────────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
+.npm/
+*.tsbuildinfo
+
+# ─── Build artefacts ──────────────────────────────────────────────────────────
+dist/
+build/
+*.egg
+
+# ─── VS Code ──────────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Docker local override ────────────────────────────────────────────────────
+docker-compose.override.yml
