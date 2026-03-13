@@ -10,7 +10,7 @@ _env_path = os.path.join(os.path.dirname(__file__), "../.env")
 if os.path.exists(_env_path):
     load_dotenv(_env_path)
 
-from src.services.llm_client import get_llm_response
+from src.services.llm_client import get_llm_response, get_llm_response_grounded
 from src.services.llm_settings import LLM_PROVIDER, LLM_MODEL
 
 # ── Password gate ─────────────────────────────────────────────────────────────
@@ -58,6 +58,14 @@ with st.sidebar:
     ])
     format_ = st.selectbox("📋 Format", ["T20", "ODI", "Test"])
     st.divider()
+    use_grounding = st.toggle(
+        "🌐 Live web search",
+        value=True,
+        help="Uses Google Search grounding for current IPL 2025/26 season data. Disable for faster responses from LLM knowledge only.",
+    )
+    if not use_grounding:
+        st.caption("⚠️ Web search off — answers use LLM training data only (may miss recent matches)")
+    st.divider()
     if _APP_PASSWORD and st.button("🔓 Logout"):
         st.session_state.authenticated = False
         st.rerun()
@@ -76,7 +84,8 @@ if tool == "💬 Ask AI":
     if st.button("🚀 Ask", type="primary", use_container_width=True):
         if question.strip():
             with st.spinner("🤔 Thinking..."):
-                answer = get_llm_response(question, {"format": format_})
+                _fn = get_llm_response_grounded if use_grounding else get_llm_response
+                answer = _fn(question, {"format": format_})
             st.markdown("### 💡 Answer")
             st.write(answer)
         else:
@@ -88,7 +97,8 @@ elif tool == "🏏 Batter Stats":
     if st.button("📊 Analyse", type="primary", use_container_width=True):
         if player.strip():
             with st.spinner(f"Analysing {player}..."):
-                answer = get_llm_response(
+                _fn = get_llm_response_grounded if use_grounding else get_llm_response
+                answer = _fn(
                     f"Comprehensive batting stats and analysis for {player} in {format_} cricket. "
                     "Include career averages, strike rate, recent form, strengths, weaknesses and fantasy value.",
                     {"format": format_, "player": player},
@@ -104,7 +114,8 @@ elif tool == "🎳 Bowler Stats":
     if st.button("📊 Analyse", type="primary", use_container_width=True):
         if player.strip():
             with st.spinner(f"Analysing {player}..."):
-                answer = get_llm_response(
+                _fn = get_llm_response_grounded if use_grounding else get_llm_response
+                answer = _fn(
                     f"Comprehensive bowling stats and analysis for {player} in {format_} cricket. "
                     "Include wickets, economy, average, recent form and fantasy value.",
                     {"format": format_, "player": player},
@@ -120,7 +131,8 @@ elif tool == "🏟️ Venue Stats":
     if st.button("📊 Analyse Venue", type="primary", use_container_width=True):
         if venue.strip():
             with st.spinner(f"Analysing {venue}..."):
-                answer = get_llm_response(
+                _fn = get_llm_response_grounded if use_grounding else get_llm_response
+                answer = _fn(
                     f"Detailed venue analysis for {venue} in {format_} cricket. "
                     "Include pitch conditions, average scores, batting/bowling nature and records.",
                     {"format": format_, "venue": venue},
@@ -140,7 +152,8 @@ elif tool == "⚔️ Head-to-Head":
     if st.button("⚔️ Get Analysis", type="primary", use_container_width=True):
         if team_a.strip() and team_b.strip():
             with st.spinner(f"Analysing {team_a} vs {team_b}..."):
-                answer = get_llm_response(
+                _fn = get_llm_response_grounded if use_grounding else get_llm_response
+                answer = _fn(
                     f"Head-to-head analysis between {team_a} and {team_b} in {format_} cricket. "
                     "Include overall record, recent meetings, key player battles and prediction.",
                     {"format": format_, "team_a": team_a, "team_b": team_b},
@@ -157,7 +170,8 @@ elif tool == "📅 Recent Matches":
     if st.button("📅 Get Matches", type="primary", use_container_width=True):
         if team.strip():
             with st.spinner(f"Fetching {team} recent matches..."):
-                answer = get_llm_response(
+                _fn = get_llm_response_grounded if use_grounding else get_llm_response
+                answer = _fn(
                     f"List and analyse the last {n} {format_} matches for {team}. "
                     "Include results, scores, key performers and current form.",
                     {"format": format_, "team": team, "n": n},
@@ -185,7 +199,8 @@ elif tool == "🎯 Full Match Insights":
     if st.button("🎯 Generate Full Insights", type="primary", use_container_width=True):
         if team_a.strip() and team_b.strip() and venue.strip():
             with st.spinner("Generating full match insights..."):
-                answer = get_llm_response(
+                _fn = get_llm_response_grounded if use_grounding else get_llm_response
+                answer = _fn(
                     f"Analyse the upcoming {format_} match between {team_a} and {team_b} at {venue} on {match_date}. "
                     f"Provide: 1) Team analysis 2) Key player matchups 3) Pitch & conditions "
                     f"4) Predicted Playing XI 5) Top fantasy picks 6) Match prediction with reasoning.",
