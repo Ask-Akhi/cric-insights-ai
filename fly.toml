@@ -10,7 +10,7 @@ primary_region = "sin"   # Singapore — closest to South Asia
 
 # ── Streamlit UI (public-facing) ──────────────────────────────────────────────
 [[services]]
-  internal_port = 8502
+  internal_port = 8503
   protocol = "tcp"
 
   [[services.ports]]
@@ -36,11 +36,11 @@ primary_region = "sin"   # Singapore — closest to South Asia
 
 # ── FastAPI backend (also exposed for direct API access) ──────────────────────
 [[services]]
-  internal_port = 8001
+  internal_port = 8002
   protocol = "tcp"
 
   [[services.ports]]
-    port = 8001
+    port = 8002
     handlers = ["http"]
 
   [[services.http_checks]]

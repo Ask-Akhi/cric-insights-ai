@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
-from .routers import players, matches, insights
+from .routers import players, matches, insights, ask
 
 app = FastAPI(title="Cric Insights API")
 
@@ -19,6 +19,7 @@ app.add_middleware(
 app.include_router(players.router, prefix="/api/players", tags=["players"])
 app.include_router(matches.router, prefix="/api/matches", tags=["matches"])
 app.include_router(insights.router, prefix="/api/insights", tags=["insights"])
+app.include_router(ask.router, prefix="/api/ask", tags=["ask"])
 
 # Health
 @app.get("/api/health")
@@ -27,6 +28,7 @@ def health():
 
 # Serve static frontend
 FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
+# FastAPI runs on port 8002 (8001 used by another local app)
 DIST_DIR = os.path.join(FRONTEND_DIR, "dist")
 if os.path.isdir(DIST_DIR):
     # Prefer built assets from Vite

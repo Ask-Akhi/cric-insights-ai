@@ -39,12 +39,11 @@ COPY backend/ ./backend/
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Expose ports
-# 8000 = FastAPI (internal), 8502 = Streamlit, 80 = Nginx (optional)
-EXPOSE 8001 8502
+EXPOSE 8002 8503
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8001/api/health || exit 1
+    CMD curl -f http://localhost:8002/api/health || exit 1
 
 # Start both services via supervisor
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

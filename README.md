@@ -46,10 +46,10 @@ cd "c:\Users\1223505\Personal Apps"
 python -m venv .venv312
 .venv312\Scripts\Activate.ps1
 pip install -r backend/requirements.txt
-python -m uvicorn backend.src.main:app --reload --host 127.0.0.1 --port 8001
+python -m uvicorn backend.src.main:app --reload --host 127.0.0.1 --port 8002
 ```
 
-API health check: http://127.0.0.1:8001/api/health
+API health check: http://127.0.0.1:8002/api/health
 
 ### 3. Streamlit UI
 
