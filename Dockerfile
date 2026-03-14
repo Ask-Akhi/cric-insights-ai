@@ -21,8 +21,9 @@ WORKDIR /app
 
 # Default env vars (overridden at runtime via -e or platform secrets)
 ENV LLM_PROVIDER=gemini \
-    LLM_MODEL=gemini-2.0-flash-lite \
+    LLM_MODEL=gemini-2.5-flash \
     CRICSHEET_DATA_DIR=/app/data/cricsheet \
+    FRONTEND_DIST=/app/frontend/dist \
     PYTHONUNBUFFERED=1
 
 # Copy Python requirements and install
@@ -38,8 +39,8 @@ COPY backend/ ./backend/
 # Copy supervisor config
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Expose ports
-EXPOSE 8002 8503
+# Expose only the FastAPI port — React frontend is served from /app/frontend/dist by FastAPI
+EXPOSE 8002
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

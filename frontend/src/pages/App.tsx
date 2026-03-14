@@ -8,7 +8,7 @@ import HeadToHead from './HeadToHead'
 import RecentMatches from './RecentMatches'
 import MatchInsights from './MatchInsights'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8002'
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 const TOOLS = [
   { id: 'ask',     icon: '💬', label: 'Ask AI',         desc: 'Cricket Q&A' },

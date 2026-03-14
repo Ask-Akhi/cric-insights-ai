@@ -26,13 +26,10 @@ app.include_router(ask.router, prefix="/api/ask", tags=["ask"])
 def health():
     return {"status": "ok"}
 
-# Serve static frontend
-FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
-# FastAPI runs on port 8002 (8001 used by another local app)
-DIST_DIR = os.path.join(FRONTEND_DIR, "dist")
+# Serve static frontend — prefer FRONTEND_DIST env var (set in Docker), fallback to relative path
+DIST_DIR = os.environ.get(
+    "FRONTEND_DIST",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+)
 if os.path.isdir(DIST_DIR):
-    # Prefer built assets from Vite
     app.mount("/", StaticFiles(directory=DIST_DIR, html=True), name="frontend")
-elif os.path.isdir(FRONTEND_DIR):
-    # Fallback to raw frontend folder (expects dev server normally)
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
