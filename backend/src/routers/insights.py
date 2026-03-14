@@ -9,11 +9,27 @@ from ..services.expected_service import ExpectedService
 
 router = APIRouter()
 
-# Initialize provider and services once per process
-_provider = CricsheetProvider()
-_provider.load()
-_stats = StatsService(_provider)
-_expected = ExpectedService(_provider)
+# Lazy-initialised — do NOT load at import time (crashes Railway before $PORT is bound)
+_provider: CricsheetProvider | None = None
+_stats: StatsService | None = None
+_expected: ExpectedService | None = None
+
+def _get_services():
+    global _provider, _stats, _expected
+    if _provider is None:
+        try:
+            _provider = CricsheetProvider()
+            _provider.load()
+            _stats = StatsService(_provider)
+            _expected = ExpectedService(_provider)
+        except Exception as e:
+            # Log but don't crash — endpoints will return empty results
+            import logging
+            logging.getLogger(__name__).warning(f"CricsheetProvider failed to load: {e}")
+            _provider = CricsheetProvider()   # unloaded stub
+            _stats = StatsService(_provider)
+            _expected = ExpectedService(_provider)
+    return _stats, _expected
 
 class InsightsRequest(BaseModel):
     format: str
@@ -31,17 +47,18 @@ def insights_get():
 @router.post("")
 @router.post("/")
 def generate_insights(req: InsightsRequest):
+    stats, expected = _get_services()
     batters: List[Dict[str, Any]] = []
     bowlers: List[Dict[str, Any]] = []
 
     # Compute batter and bowler insights for all provided players
     for player in list(dict.fromkeys(req.squad_a + req.squad_b)):
-        b = _stats.compute_batter(player_name=player, venue=req.venue, opponent=None)
-        e_b = _expected.estimate_batter(player_name=player, venue=req.venue, opponent=None)
+        b = stats.compute_batter(player_name=player, venue=req.venue, opponent=None)
+        e_b = expected.estimate_batter(player_name=player, venue=req.venue, opponent=None)
         batters.append({"player": player, "stats": asdict(b), "expected": asdict(e_b)})
 
-        w = _stats.compute_bowler(player_name=player, venue=req.venue, opponent=None)
-        e_w = _expected.estimate_bowler(player_name=player, venue=req.venue, opponent=None)
+        w = stats.compute_bowler(player_name=player, venue=req.venue, opponent=None)
+        e_w = expected.estimate_bowler(player_name=player, venue=req.venue, opponent=None)
         bowlers.append({"player": player, "stats": asdict(w), "expected": asdict(e_w)})
 
     return {"batters": batters, "bowlers": bowlers}
