@@ -4,7 +4,9 @@ import polars as pl
 
 from .base import BaseDataProvider
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+# Honour CRICSHEET_DATA_DIR env var (set in Docker/Railway) — fall back to local data/ dir
+_default_data = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+DATA_DIR = os.environ.get("CRICSHEET_DATA_DIR", _default_data)
 RAW_DIR = os.path.join(DATA_DIR, "raw")
 PARQUET_DIR = os.path.join(DATA_DIR, "parquet")
 
@@ -34,11 +36,11 @@ class CricsheetProvider(BaseDataProvider):
         # Ensure expected columns exist
         expected = [
             "match_id","season","start_date","gender","format","competition","venue","city","country",
-            "batting_team","bowling_team","innings","ball","batter","non_striker","bowler","runs_off_bat","extras",
-            "wides","noballs","byes","legbyes","penalties","wicket_type","player_dismissed"
+            "batting_team","bowling_team","innings","ball","batter","non_striker","bowler","runs_off_bat","extras",            "wides","noballs","byes","legbyes","penalties","wicket_type","player_dismissed"
         ]
+        schema_names = lf.collect_schema().names()
         for col in expected:
-            if col not in lf.columns:
+            if col not in schema_names:
                 lf = lf.with_columns(pl.lit(None).alias(col))
         self.datasets["balls"] = lf
         self.loaded = True

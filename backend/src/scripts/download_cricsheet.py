@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import polars as pl
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+DATA_DIR = Path(os.environ.get("CRICSHEET_DATA_DIR", str(Path(__file__).resolve().parents[1] / "data")))
 RAW_DIR = DATA_DIR / "raw"
 PARQUET_DIR = DATA_DIR / "parquet"
 

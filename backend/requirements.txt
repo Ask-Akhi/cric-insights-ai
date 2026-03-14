@@ -12,9 +12,6 @@ pyarrow==17.0.0
 google-genai>=1.66.0
 openai>=1.40.0
 
-# UI
-streamlit>=1.38.0
-
 # Config
 python-dotenv==1.0.0
 

@@ -7,9 +7,10 @@ services:
       dockerfile: Dockerfile
     image: cric-insights-ai:latest
     container_name: cric-insights
-    restart: unless-stopped    ports:
-      - "8002:8002"   # FastAPI
-      - "8503:8503"   # Streamlitenvironment:
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - LLM_MODEL=${LLM_MODEL:-gemini-2.0-flash-lite}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
@@ -17,7 +18,8 @@ services:
       - APP_PASSWORD=${APP_PASSWORD:-}
       - CRICSHEET_DATA_DIR=/app/data/cricsheet
     volumes:
-      - cricsheet_data:/app/data/cricsheet   # persist data across restarts    healthcheck:
+      - cricsheet_data:/app/data/cricsheet
+    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/api/health"]
       interval: 30s
       timeout: 10s
