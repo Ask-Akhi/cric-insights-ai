@@ -39,7 +39,7 @@ export default function App() {
             <span className="text-3xl animate-float inline-block">🏏</span>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">Cric Insights <span className="text-orange-400">AI</span></h1>
-              <p className="text-xs text-slate-500">Powered by Google Gemini · Cricsheet Data</p>
+              <p className="text-xs text-slate-500">Powered by AI - CricAnalyst</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -124,7 +124,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/5 mt-8 py-4 text-center text-xs text-slate-600">
-        🏏 Cric Insights AI · AI-Powered · Cricsheet Data · © 2026
+        🏏 Cric Insights AI · AI - CricAnalyst · © 2026
       </footer>
     </div>
   )
