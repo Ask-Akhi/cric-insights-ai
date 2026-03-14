@@ -11,10 +11,9 @@ FROM python:3.12-slim
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    supervisor \
     curl \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /var/log /app/data/cricsheet
+    && mkdir -p /app/data/cricsheet
 
 # Set working dir
 WORKDIR /app
@@ -24,6 +23,7 @@ ENV LLM_PROVIDER=gemini \
     LLM_MODEL=gemini-2.5-flash \
     CRICSHEET_DATA_DIR=/app/data/cricsheet \
     FRONTEND_DIST=/app/frontend/dist \
+    PYTHONPATH=/app \
     PYTHONUNBUFFERED=1
 
 # Copy Python requirements and install
@@ -36,15 +36,12 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 # Copy backend source (includes ui/ subdirectory)
 COPY backend/ ./backend/
 
-# Copy supervisor config
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# Expose only the FastAPI port — React frontend is served from /app/frontend/dist by FastAPI
+# Expose default port (Railway overrides via $PORT env var)
 EXPOSE 8002
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8002/api/health || exit 1
+# Healthcheck using $PORT (Railway sets this at runtime)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8002}/api/health || exit 1
 
-# Start both services via supervisor
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Railway injects $PORT — uvicorn must bind to it
+CMD ["sh", "-c", "python -m uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8002}"]
