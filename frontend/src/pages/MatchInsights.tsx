@@ -35,28 +35,28 @@ export default function MatchInsights({ apiBase, format, grounded }: Props) {
     >
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs text-slate-400 mb-1 font-medium">Team A</label>
+          <label className="field-label">Team A</label>
           <input className="input" placeholder="e.g. Mumbai Indians" value={teamA} onChange={e => setTeamA(e.target.value)} required />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1 font-medium">Team B</label>
+          <label className="field-label">Team B</label>
           <input className="input" placeholder="e.g. Chennai Super Kings" value={teamB} onChange={e => setTeamB(e.target.value)} required />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1 font-medium">Venue</label>
+          <label className="field-label">Venue</label>
           <input className="input" placeholder="e.g. Wankhede Stadium" value={venue} onChange={e => setVenue(e.target.value)} required />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1 font-medium">Match Date (optional)</label>
+          <label className="field-label">Match Date (optional)</label>
           <input type="date" className="input" value={matchDate} onChange={e => setMatchDate(e.target.value)} />
         </div>
       </div>
       <div>
-        <label className="block text-xs text-slate-400 mb-1 font-medium">Squad A — comma separated (optional)</label>
+        <label className="field-label">Squad A — comma separated (optional)</label>
         <textarea className="input h-16 resize-none" placeholder="Rohit Sharma, Virat Kohli, Hardik Pandya..." value={squadA} onChange={e => setSquadA(e.target.value)} />
       </div>
       <div>
-        <label className="block text-xs text-slate-400 mb-1 font-medium">Squad B — comma separated (optional)</label>
+        <label className="field-label">Squad B — comma separated (optional)</label>
         <textarea className="input h-16 resize-none" placeholder="MS Dhoni, Ruturaj Gaikwad, Deepak Chahar..." value={squadB} onChange={e => setSquadB(e.target.value)} />
       </div>
     </ToolShell>

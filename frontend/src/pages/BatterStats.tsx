@@ -18,7 +18,7 @@ export default function BatterStats({ apiBase, format, grounded }: Props) {
         grounded,
       })}
     >
-      <label className="block text-xs text-slate-400 mb-1 font-medium">Player Name</label>
+      <label className="field-label">Player Name</label>
       <input
         className="input"
         placeholder="e.g. Virat Kohli"

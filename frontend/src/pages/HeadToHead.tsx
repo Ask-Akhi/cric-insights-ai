@@ -21,7 +21,7 @@ export default function HeadToHead({ apiBase, format, grounded }: Props) {
     >
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs text-slate-400 mb-1 font-medium">Team A</label>
+          <label className="field-label">Team A</label>
           <input
             className="input"
             placeholder="e.g. India"
@@ -31,7 +31,7 @@ export default function HeadToHead({ apiBase, format, grounded }: Props) {
           />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1 font-medium">Team B</label>
+          <label className="field-label">Team B</label>
           <input
             className="input"
             placeholder="e.g. Australia"

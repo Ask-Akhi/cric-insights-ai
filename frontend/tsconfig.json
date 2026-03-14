@@ -8,9 +8,9 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "strict": true
+    "noEmit": true,    "skipLibCheck": true,
+    "strict": true,
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }

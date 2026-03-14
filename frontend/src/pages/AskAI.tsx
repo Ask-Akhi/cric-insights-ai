@@ -18,7 +18,7 @@ export default function AskAI({ apiBase, format, grounded }: Props) {
         grounded,
       })}
     >
-      <label className="block text-xs text-slate-400 mb-1 font-medium">Your Question</label>
+      <label className="field-label">Your Question</label>
       <textarea
         className="input h-32 resize-none"
         placeholder="Who should I pick for my fantasy team tonight? What's Rohit Sharma's record in death overs?"

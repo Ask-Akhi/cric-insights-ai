@@ -18,7 +18,7 @@ export default function VenueStats({ apiBase, format, grounded }: Props) {
         grounded,
       })}
     >
-      <label className="block text-xs text-slate-400 mb-1 font-medium">Venue / Stadium Name</label>
+      <label className="field-label">Venue / Stadium Name</label>
       <input
         className="input"
         placeholder="e.g. Wankhede Stadium, Mumbai"

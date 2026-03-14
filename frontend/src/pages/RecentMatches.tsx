@@ -21,7 +21,7 @@ export default function RecentMatches({ apiBase, format, grounded }: Props) {
     >
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2">
-          <label className="block text-xs text-slate-400 mb-1 font-medium">Team Name</label>
+          <label className="field-label">Team Name</label>
           <input
             className="input"
             placeholder="e.g. Mumbai Indians"
@@ -31,7 +31,7 @@ export default function RecentMatches({ apiBase, format, grounded }: Props) {
           />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1 font-medium">No. of Matches</label>
+          <label className="field-label">No. of Matches</label>
           <input
             type="number"
             min={1} max={20}
