@@ -36,12 +36,12 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 # Copy backend source (includes ui/ subdirectory)
 COPY backend/ ./backend/
 
-# Expose default port (Railway overrides via $PORT env var)
-EXPOSE 8002
+# Expose port — must match what Railway injects via $PORT (Railway uses 8080 by default)
+EXPOSE 8080
 
-# Healthcheck using $PORT (Railway sets this at runtime)
+# Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8002}/api/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
 
-# Railway injects $PORT — uvicorn must bind to it
-CMD ["sh", "-c", "python -m uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8002}"]
+# Railway injects $PORT — uvicorn binds to it
+CMD ["sh", "-c", "python -m uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
