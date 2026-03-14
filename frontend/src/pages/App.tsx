@@ -91,13 +91,11 @@ export default function App() {
             </motion.button>
           ))}
 
-          {/* Status card */}
-          <div className="glass p-4 mt-4 space-y-2">
+          {/* Status card */}          <div className="glass p-4 mt-4 space-y-2">
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
               API Online
             </div>
-            <div className="text-xs text-slate-500">gemini-2.5-flash</div>
             <div className="text-xs text-slate-500">Format: <span className="text-orange-400 font-semibold">{format}</span></div>
           </div>
         </aside>
@@ -126,7 +124,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/5 mt-8 py-4 text-center text-xs text-slate-600">
-        🏏 Cric Insights AI · Google Gemini · Cricsheet · © 2026
+        🏏 Cric Insights AI · AI-Powered · Cricsheet Data · © 2026
       </footer>
     </div>
   )

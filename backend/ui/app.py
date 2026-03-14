@@ -39,13 +39,13 @@ st.set_page_config(page_title="Cric Insights AI", page_icon="🏏", layout="wide
 col1, col2 = st.columns([4, 1])
 with col1:
     st.title("🏏 Cric Insights AI")
-    st.caption(f"Powered by **{LLM_PROVIDER.upper()}** · `{LLM_MODEL}`")
+    st.caption("Powered by **AI** · Cricsheet Data")
 with col2:
     st.metric("Status", "🟢 Online")
 
 with st.sidebar:
     st.header("⚙️ Settings")
-    st.success(f"🤖 {LLM_PROVIDER.upper()} · {LLM_MODEL}")
+    st.success("🤖 AI Assistant · Ready")
     st.divider()
     tool = st.selectbox("🛠️ Select Tool", [
         "💬 Ask AI",
