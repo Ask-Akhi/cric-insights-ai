@@ -42,8 +42,20 @@ def _set_cached(key: str, answer: str) -> None:
     _cache[key] = {"answer": answer, "ts": time.time()}
 
 
+def _check_api_key() -> str | None:
+    """Returns an error message if no API key is configured, else None."""
+    if LLM_PROVIDER == "gemini" and not GEMINI_API_KEY:
+        return "GEMINI_API_KEY is not configured. Please set it in Railway → Variables."
+    if LLM_PROVIDER == "openai" and not OPENAI_API_KEY:
+        return "OPENAI_API_KEY is not configured. Please set it in Railway → Variables."
+    return None
+
+
 def get_llm_response(prompt: str, context: Dict[str, Any] = {}) -> str:
     """Standard LLM response — uses training data only, cached."""
+    if err := _check_api_key():
+        raise ValueError(err)
+
     key = _cache_key(prompt, context)
     cached = _get_cached(key)
     if cached:
@@ -54,7 +66,7 @@ def get_llm_response(prompt: str, context: Dict[str, Any] = {}) -> str:
     elif LLM_PROVIDER == "openai":
         answer = _openai_response(prompt, context)
     else:
-        return f"Unknown LLM provider: {LLM_PROVIDER}"
+        raise ValueError(f"Unknown LLM provider: {LLM_PROVIDER}")
 
     if not answer.startswith("❌"):
         _set_cached(key, answer)
@@ -63,6 +75,8 @@ def get_llm_response(prompt: str, context: Dict[str, Any] = {}) -> str:
 
 def get_llm_response_grounded(prompt: str, context: Dict[str, Any] = {}) -> str:
     """Grounded LLM response — uses Google Search for live/current-season data. Not cached."""
+    if err := _check_api_key():
+        raise ValueError(err)
     if LLM_PROVIDER == "gemini":
         return _gemini_response(prompt, context, grounded=True)
     # OpenAI has no built-in search grounding — fall back gracefully

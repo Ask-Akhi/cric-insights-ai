@@ -116,11 +116,19 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, children }:
             exit={{ opacity: 0 }}
             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
             className="glass p-6"
-          >
-            {error ? (
-              <div className="flex items-start gap-3 text-sm text-red-400">
-                <span className="text-lg flex-shrink-0">❌</span>
-                <span>{error}</span>
+          >            {error ? (
+              <div className="flex items-start gap-3 text-sm">
+                {error.includes('GEMINI_API_KEY') || error.includes('OPENAI_API_KEY') || error.includes('not configured') ? (
+                  <div className="w-full rounded-xl p-4 space-y-2" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                    <p className="text-red-400 font-semibold">⚙️ API Key Not Configured</p>
+                    <p className="text-slate-400 text-xs leading-relaxed">
+                      The <code className="text-orange-300">GEMINI_API_KEY</code> environment variable is missing.<br />
+                      Go to <strong className="text-white">Railway → your service → Variables</strong> and add it, then Railway will restart automatically.
+                    </p>
+                  </div>
+                ) : (
+                  <><span className="text-lg flex-shrink-0 text-red-400">❌</span><span className="text-red-400">{error}</span></>
+                )}
               </div>
             ) : (
               <>

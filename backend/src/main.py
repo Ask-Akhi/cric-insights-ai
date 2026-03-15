@@ -22,6 +22,9 @@ async def startup_event():
     port = os.environ.get("PORT", "8002")
     log.info(f"🚀 Cric Insights API starting on PORT={port}")
     log.info(f"📁 FRONTEND_DIST={DIST_DIR} exists={os.path.isdir(DIST_DIR)}")
+    # Warn early if LLM key is missing
+    if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+        log.warning("⚠️  No LLM API key found — set GEMINI_API_KEY or OPENAI_API_KEY in Railway Variables")
 
 # CORS
 app.add_middleware(
