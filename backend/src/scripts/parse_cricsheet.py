@@ -13,11 +13,16 @@ CSV format (v1.x):
 Format is NOT stored in the v1 CSV — it is parsed from the README inside
 each gender zip file (e.g. all_male_csv.zip).
 
-Run:
+Run (download + parse in one step — used by Docker/Railway):
+    python -m backend.src.scripts.parse_cricsheet --gender both --download
+
+Run (parse pre-downloaded zips):
     python -m backend.src.scripts.parse_cricsheet [--gender male|female|both]
                                                    [--batch 1000]
                                                    [--force]
-                                                   [--patch]   # fix format col on existing parquets
+
+Run (patch format col on existing parquets):
+    python -m backend.src.scripts.parse_cricsheet --patch
 """
 
 import argparse
@@ -42,6 +47,64 @@ ZIP_NAMES = {
     "male":   "all_male_csv.zip",
     "female": "all_female_csv.zip",
 }
+
+CRICSHEET_URLS = {
+    "male":   "https://cricsheet.org/downloads/all_male_csv.zip",
+    "female": "https://cricsheet.org/downloads/all_female_csv.zip",
+}
+
+
+def download_and_extract(gender: str) -> bool:
+    """Download the Cricsheet zip for *gender* and extract CSVs. Returns True on success."""
+    try:
+        import httpx
+    except ImportError:
+        print(f"[{gender}] httpx not installed — cannot download", file=sys.stderr)
+        return False
+
+    url = CRICSHEET_URLS[gender]
+    zip_path = RAW_DIR / ZIP_NAMES[gender]
+    csv_dir  = RAW_DIR / gender
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not zip_path.exists():
+        print(f"[{gender}] Downloading {url} …", flush=True)
+        try:
+            timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+            with httpx.stream("GET", url, follow_redirects=True, timeout=timeout) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("content-length", 0))
+                written = 0
+                with open(zip_path, "wb") as f:
+                    for chunk in r.iter_bytes(chunk_size=1 << 20):
+                        f.write(chunk)
+                        written += len(chunk)
+                        if total:
+                            print(f"  {written * 100 // total}%"
+                                  f" ({written // 1_048_576} / {total // 1_048_576} MB)",
+                                  flush=True)
+            print(f"[{gender}] Downloaded {written // 1_048_576} MB", flush=True)
+        except Exception as e:
+            print(f"[{gender}] Download failed: {e}", file=sys.stderr)
+            return False
+    else:
+        print(f"[{gender}] Zip already exists, skipping download", flush=True)
+
+    if not csv_dir.exists() or not any(csv_dir.rglob("*.csv")):
+        print(f"[{gender}] Extracting CSVs …", flush=True)
+        try:
+            with zipfile.ZipFile(zip_path) as z:
+                z.extractall(csv_dir)
+            print(f"[{gender}] Extracted to {csv_dir}", flush=True)
+        except Exception as e:
+            print(f"[{gender}] Extract failed: {e}", file=sys.stderr)
+            return False
+    else:
+        print(f"[{gender}] CSVs already extracted, skipping", flush=True)
+
+    return True
+
 
 # ── Ball column names (positional) ────────────────────────────────────────
 BALL_COLS = [
@@ -313,15 +376,23 @@ def main():
     ap.add_argument("--gender", choices=["male", "female", "both"], default="both")
     ap.add_argument("--batch", type=int, default=1000)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--download", action="store_true",
+                    help="Download + extract zips from cricsheet.org before parsing")
     ap.add_argument("--patch", action="store_true",
                     help="Patch format col on existing parquets instead of re-parsing")
     args = ap.parse_args()
 
     genders = ["male", "female"] if args.gender == "both" else [args.gender]
+
     for g in genders:
         if args.patch:
             patch_format(g)
         else:
+            if args.download:
+                ok = download_and_extract(g)
+                if not ok:
+                    print(f"[{g}] Skipping parse due to download failure", file=sys.stderr)
+                    continue
             process_gender(g, batch=args.batch, force=args.force)
 
 

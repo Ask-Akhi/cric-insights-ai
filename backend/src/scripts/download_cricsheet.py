@@ -55,11 +55,21 @@ def standardize_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 def download_zip(url: str, dest_zip: Path):
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
-    with httpx.stream("GET", url, follow_redirects=True, timeout=60) as r:
+    print(f"Downloading {url} → {dest_zip} …", flush=True)
+    # Large zip files (200–600 MB) need a long connect + read timeout
+    timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+    with httpx.stream("GET", url, follow_redirects=True, timeout=timeout) as r:
         r.raise_for_status()
+        total = int(r.headers.get("content-length", 0))
+        written = 0
         with open(dest_zip, "wb") as f:
-            for chunk in r.iter_bytes():
+            for chunk in r.iter_bytes(chunk_size=1 << 20):  # 1 MB chunks
                 f.write(chunk)
+                written += len(chunk)
+                if total:
+                    pct = written * 100 // total
+                    print(f"  {pct}% ({written // 1_048_576} MB / {total // 1_048_576} MB)", flush=True)
+    print(f"Downloaded {dest_zip.name} ({written // 1_048_576} MB)", flush=True)
 
 
 def extract_zip(zip_path: Path, dest_dir: Path):

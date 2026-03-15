@@ -37,14 +37,17 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 COPY backend/ ./backend/
 
 # ── Download & parse Cricsheet data at build time ────────────────────────────
-# Baked into the image so Railway (no persistent volume) has real data.
-# Uses CRICSHEET_DATA_DIR already set above (/app/data/cricsheet).
-RUN python backend/src/scripts/download_cricsheet.py --men --women --parse \
-    || echo "⚠️  Cricsheet download failed — app will still start without data"
+# parse_cricsheet.py handles the current Cricsheet v1 CSV format (info+ball rows).
+# --download fetches both gender zips (~400 MB each) from cricsheet.org,
+# extracts CSVs, then converts every match into batched Parquet files baked
+# into the image — Railway has no persistent volume so data must be in the image.
+# The || echo ensures a download failure doesn't abort the build.
+RUN python -u backend/src/scripts/parse_cricsheet.py --gender both --download \
+    && echo "✅ Cricsheet data ready" \
+    || echo "⚠️  Cricsheet parse failed — app will start without data"
 
-# Railway injects $PORT at runtime — do not hardcode EXPOSE, just bind to $PORT
-# Healthcheck uses whatever port Railway assigned
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+# Railway injects $PORT at runtime. start-period is generous for data load.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
 
 CMD ["sh", "-c", "exec python -m uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
