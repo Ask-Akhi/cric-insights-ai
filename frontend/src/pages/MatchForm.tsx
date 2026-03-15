@@ -1,4 +1,5 @@
 import React from 'react'
+import SquadBuilder from '../components/SquadBuilder'
 
 export interface MatchFormData {
   format: string
@@ -6,11 +7,12 @@ export interface MatchFormData {
   teamB: string
   venue: string
   matchDate: string
-  squadA: string
-  squadB: string
+  squadA: string[]
+  squadB: string[]
 }
 
 interface Props {
+  apiBase: string
   value: MatchFormData
   onChange: (data: MatchFormData) => void
   formatLocked?: boolean
@@ -18,9 +20,10 @@ interface Props {
 
 const FORMATS = ['T20', 'IT20', 'ODI', 'ODM', 'Test', 'IPL', 'BBL', 'CPL', 'PSL']
 
-export default function MatchForm({ value, onChange, formatLocked }: Props) {
-  const set = (field: keyof MatchFormData) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+export default function MatchForm({ apiBase, value, onChange, formatLocked }: Props) {
+  const set =
+    (field: keyof Pick<MatchFormData, 'format' | 'teamA' | 'teamB' | 'venue' | 'matchDate'>) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       onChange({ ...value, [field]: e.target.value })
 
   return (
@@ -72,36 +75,28 @@ export default function MatchForm({ value, onChange, formatLocked }: Props) {
           />
         </div>
         <div>
-          <label className="field-label">Match Date <span className="text-slate-600">(optional)</span></label>
+          <label className="field-label">
+            Match Date <span className="text-slate-600">(optional)</span>
+          </label>
           <input type="date" className="input" value={value.matchDate} onChange={set('matchDate')} />
         </div>
       </div>
 
-      {/* Squads */}
-      <div>
-        <label className="field-label">
-          {value.teamA || 'Team A'} Squad
-          <span className="text-slate-600 ml-1">(optional, comma-separated)</span>
-        </label>
-        <textarea
-          className="input h-16 resize-none"
-          placeholder="Rohit Sharma, Virat Kohli, Hardik Pandya..."
-          value={value.squadA}
-          onChange={set('squadA')}
-        />
-      </div>
-      <div>
-        <label className="field-label">
-          {value.teamB || 'Team B'} Squad
-          <span className="text-slate-600 ml-1">(optional, comma-separated)</span>
-        </label>
-        <textarea
-          className="input h-16 resize-none"
-          placeholder="MS Dhoni, Ruturaj Gaikwad, Deepak Chahar..."
-          value={value.squadB}
-          onChange={set('squadB')}
-        />
-      </div>
+      {/* Squads via SquadBuilder */}
+      <SquadBuilder
+        apiBase={apiBase}
+        label={`${value.teamA || 'Team A'} Squad (optional)`}
+        players={value.squadA}
+        onChange={squadA => onChange({ ...value, squadA })}
+        placeholder="Search & add players…"
+      />
+      <SquadBuilder
+        apiBase={apiBase}
+        label={`${value.teamB || 'Team B'} Squad (optional)`}
+        players={value.squadB}
+        onChange={squadB => onChange({ ...value, squadB })}
+        placeholder="Search & add players…"
+      />
     </div>
   )
 }

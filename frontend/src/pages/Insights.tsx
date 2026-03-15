@@ -144,7 +144,7 @@ function FantasyPicks({ data }: { data: InsightsResponse }) {
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function Insights({ apiBase, format, grounded }: Props) {
   const [form, setForm] = useState<MatchFormData>({
-    format, teamA: '', teamB: '', venue: '', matchDate: '', squadA: '', squadB: '',
+    format, teamA: '', teamB: '', venue: '', matchDate: '', squadA: [], squadB: [],
   })
   const [loading, setLoading]   = useState(false)
   const [aiLoading, setAiLoad]  = useState(false)
@@ -152,9 +152,7 @@ export default function Insights({ apiBase, format, grounded }: Props) {
   const [aiAnswer, setAiAnswer] = useState<string | null>(null)
   const [error, setError]       = useState<string | null>(null)
   const [tab, setTab]           = useState<'data' | 'ai'>('data')
-
-  const splitSquad = (s: string) =>
-    s.split(',').map(x => x.trim()).filter(Boolean)
+  const splitSquad = (s: string[]) => s.filter(Boolean)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -183,8 +181,8 @@ export default function Insights({ apiBase, format, grounded }: Props) {
       prompt:
         `Analyse the upcoming ${form.format} match: ${form.teamA} vs ${form.teamB} at ${form.venue}` +
         (form.matchDate ? ` on ${form.matchDate}` : '') + '.\n' +
-        (squadA.length ? `${form.teamA} squad: ${form.squadA}\n` : '') +
-        (squadB.length ? `${form.teamB} squad: ${form.squadB}\n` : '') +
+        (squadA.length ? `${form.teamA} squad: ${squadA.join(', ')}\n` : '') +
+        (squadB.length ? `${form.teamB} squad: ${squadB.join(', ')}\n` : '') +
         `Provide: 1) Team form & strengths 2) Key player matchups 3) Pitch & conditions ` +
         `4) Predicted Playing XI (both teams) 5) Top fantasy picks with captain/VC 6) Match prediction with probability.`,
       context: {
@@ -206,9 +204,8 @@ export default function Insights({ apiBase, format, grounded }: Props) {
   }
 
   const hasAnyData = data && (data.batters.length > 0 || data.bowlers.length > 0)
-
-  const squadAPlayers = splitSquad(form.squadA)
-  const squadBPlayers = splitSquad(form.squadB)
+  const squadAPlayers = form.squadA
+  const squadBPlayers = form.squadB
 
   const battersA = data?.batters.filter(p => squadAPlayers.includes(p.player)) ?? []
   const battersB = data?.batters.filter(p => squadBPlayers.includes(p.player)) ?? []
@@ -235,7 +232,7 @@ export default function Insights({ apiBase, format, grounded }: Props) {
 
       {/* ── Form ── */}
       <form onSubmit={handleSubmit} className="glass-strong p-6 space-y-5">
-        <MatchForm value={form} onChange={setForm} />
+        <MatchForm apiBase={apiBase} value={form} onChange={setForm} />
         <button
           type="submit"
           disabled={loading || aiLoading || !form.teamA || !form.teamB || !form.venue}

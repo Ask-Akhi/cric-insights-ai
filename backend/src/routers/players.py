@@ -28,8 +28,21 @@ def get_player_stats(player_name: str):
     if df.is_empty():
         return {"player": player_name, "found": False, "batter": None, "bowler": None}
 
+    # Resolve the canonical name from actual data (handles fuzzy-match fallback).
+    # Pick the most-frequent batter name that matches; fall back to input.
+    candidate_batters = df.filter(
+        pl.col("batter").str.to_lowercase().str.contains(player_name.lower())
+    ).get_column("batter").drop_nulls().to_list()
+    canonical = max(set(candidate_batters), key=candidate_batters.count) if candidate_batters else player_name
+    # If no batter rows, try the bowler column
+    if not candidate_batters:
+        candidate_bowlers = df.filter(
+            pl.col("bowler").str.to_lowercase().str.contains(player_name.lower())
+        ).get_column("bowler").drop_nulls().to_list()
+        canonical = max(set(candidate_bowlers), key=candidate_bowlers.count) if candidate_bowlers else player_name
+
     # ── Batter stats ────────────────────────────────────────────
-    bat = df.filter(pl.col("batter") == player_name)
+    bat = df.filter(pl.col("batter") == canonical)
     batter_data = None
     if bat.height > 0:
         # Runs per match (last 20)
@@ -37,7 +50,7 @@ def get_player_stats(player_name: str):
             bat.group_by(["match_id", "start_date"])
             .agg(
                 pl.col("runs_off_bat").sum().alias("runs"),
-                pl.col("runs_off_bat").count().alias("balls"),
+                pl.len().alias("balls"),
             )
             .sort("start_date")
             .tail(20)
@@ -59,7 +72,7 @@ def get_player_stats(player_name: str):
             for r in by_format.iter_rows(named=True)
         ]
         # Dismissal types
-        dismissed = df.filter(pl.col("player_dismissed") == player_name)
+        dismissed = df.filter(pl.col("player_dismissed") == canonical)
         dismissal_counts = (
             dismissed.group_by("wicket_type").len()
             if dismissed.height > 0 else pl.DataFrame({"wicket_type": [], "len": []})
@@ -90,17 +103,25 @@ def get_player_stats(player_name: str):
         }
 
     # ── Bowler stats ────────────────────────────────────────────
-    bowl = df.filter(pl.col("bowler") == player_name)
+    bowl = df.filter(pl.col("bowler") == canonical)
     bowler_data = None
     if bowl.height > 0:
-        wickets = bowl.filter(pl.col("player_dismissed").is_not_null())
+        # Exclude run outs — those are not credited to the bowler
+        wickets = bowl.filter(
+            pl.col("player_dismissed").is_not_null()
+            & pl.col("wicket_type").is_not_null()
+            & ~pl.col("wicket_type").is_in(["run out", "retired hurt", "retired out", "obstructing the field"])
+        )
         # Wickets per match (last 20)
         wpm = (
             bowl.group_by(["match_id", "start_date"])
             .agg(
-                pl.col("player_dismissed").is_not_null().sum().alias("wickets"),
+                (
+                    pl.col("player_dismissed").is_not_null()
+                    & ~pl.col("wicket_type").is_in(["run out", "retired hurt", "retired out"])
+                ).sum().alias("wickets"),
                 pl.col("runs_off_bat").sum().alias("runs_conceded"),
-                pl.col("ball").count().alias("balls"),
+                pl.len().alias("balls"),
             )
             .sort("start_date")
             .tail(20)
@@ -117,7 +138,10 @@ def get_player_stats(player_name: str):
         by_format_w = (
             bowl.group_by("format")
             .agg(
-                pl.col("player_dismissed").is_not_null().sum().alias("wickets"),
+                (
+                    pl.col("player_dismissed").is_not_null()
+                    & ~pl.col("wicket_type").is_in(["run out", "retired hurt", "retired out"])
+                ).sum().alias("wickets"),
                 pl.col("match_id").n_unique().alias("matches"),
             )
         )
@@ -141,4 +165,4 @@ def get_player_stats(player_name: str):
             "format_wickets": format_wickets,
         }
 
-    return {"player": player_name, "found": True, "batter": batter_data, "bowler": bowler_data}
+    return {"player": canonical, "found": True, "batter": batter_data, "bowler": bowler_data}

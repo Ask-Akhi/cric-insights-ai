@@ -93,12 +93,22 @@ class CricsheetProvider(BaseDataProvider):
         lf = self.datasets.get("balls")
         if lf is None:
             return pl.DataFrame()
+        # First try exact match (fast path)
         q = lf.filter(
             (pl.col("batter") == player_name)
             | (pl.col("bowler") == player_name)
             | (pl.col("player_dismissed") == player_name)
         )
-        return q.collect()
+        df = q.collect()
+        if not df.is_empty():
+            return df
+        # Fallback: case-insensitive substring match on batter/bowler columns
+        name_lower = player_name.lower()
+        q2 = lf.filter(
+            pl.col("batter").str.to_lowercase().str.contains(name_lower)
+            | pl.col("bowler").str.to_lowercase().str.contains(name_lower)
+        )
+        return q2.collect()
 
     def list_players(self, q: str | None = None, limit: int = 100) -> List[str]:
         """Return distinct player names (batters + bowlers), optionally filtered."""

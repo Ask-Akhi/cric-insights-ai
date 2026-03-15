@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ToolShell from '../components/ToolShell'
 import PlayerCharts from '../components/PlayerCharts'
+import PlayerSearchInput from '../components/PlayerSearchInput'
 import { callAsk, callPlayerStats, PlayerStats } from '../lib/api'
 
 interface Props { apiBase: string; format: string; grounded: boolean }
@@ -33,13 +34,13 @@ export default function BowlerStats({ apiBase, format, grounded }: Props) {
         subtitle="Wickets, economy, average, recent form & fantasy value"
         onSubmit={handleSubmit}
       >
-        <label className="field-label">Player Name</label>
-        <input
-          className="input"
-          placeholder="e.g. Jasprit Bumrah"
+        <PlayerSearchInput
+          apiBase={apiBase}
           value={player}
-          onChange={e => setPlayer(e.target.value)}
-          required
+          onChange={setPlayer}
+          placeholder="e.g. JJ Bumrah"
+          label="Player Name"
+          id="bowler-search"
         />
       </ToolShell>
 

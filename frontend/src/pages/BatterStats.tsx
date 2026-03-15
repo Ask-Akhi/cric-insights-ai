@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ToolShell from '../components/ToolShell'
 import PlayerCharts from '../components/PlayerCharts'
+import PlayerSearchInput from '../components/PlayerSearchInput'
 import { callAsk, callPlayerStats, PlayerStats } from '../lib/api'
 
 interface Props { apiBase: string; format: string; grounded: boolean }
@@ -34,13 +35,13 @@ export default function BatterStats({ apiBase, format, grounded }: Props) {
         subtitle="Career averages, strike rate, recent form, strengths & fantasy value"
         onSubmit={handleSubmit}
       >
-        <label className="field-label">Player Name</label>
-        <input
-          className="input"
-          placeholder="e.g. Virat Kohli"
+        <PlayerSearchInput
+          apiBase={apiBase}
           value={player}
-          onChange={e => setPlayer(e.target.value)}
-          required
+          onChange={setPlayer}
+          placeholder="e.g. V Kohli"
+          label="Player Name"
+          id="batter-search"
         />
       </ToolShell>
 
