@@ -14,8 +14,10 @@ def _get_provider() -> CricsheetProvider:
     return _provider
 
 @router.get("/")
-def list_players(q: str | None = None):
-    return {"players": [], "query": q}
+def list_players(q: str | None = None, limit: int = 100):
+    provider = _get_provider()
+    players = provider.list_players(q=q, limit=limit)
+    return {"players": players, "query": q, "count": len(players)}
 
 @router.get("/{player_name}/stats")
 def get_player_stats(player_name: str):

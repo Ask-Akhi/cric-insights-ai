@@ -36,6 +36,12 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 # Copy backend source (includes ui/ subdirectory)
 COPY backend/ ./backend/
 
+# ── Download & parse Cricsheet data at build time ────────────────────────────
+# Baked into the image so Railway (no persistent volume) has real data.
+# Uses CRICSHEET_DATA_DIR already set above (/app/data/cricsheet).
+RUN python backend/src/scripts/download_cricsheet.py --men --women --parse \
+    || echo "⚠️  Cricsheet download failed — app will still start without data"
+
 # Railway injects $PORT at runtime — do not hardcode EXPOSE, just bind to $PORT
 # Healthcheck uses whatever port Railway assigned
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \

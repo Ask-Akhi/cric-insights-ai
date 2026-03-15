@@ -7,17 +7,19 @@ import VenueStats from './VenueStats'
 import HeadToHead from './HeadToHead'
 import RecentMatches from './RecentMatches'
 import MatchInsights from './MatchInsights'
+import Insights from './Insights'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 const TOOLS = [
-  { id: 'ask',     icon: '💬', label: 'Ask AI',         desc: 'Cricket Q&A' },
-  { id: 'batter',  icon: '🏏', label: 'Batter Stats',   desc: 'Batting analysis' },
-  { id: 'bowler',  icon: '🎳', label: 'Bowler Stats',   desc: 'Bowling analysis' },
-  { id: 'venue',   icon: '🏟️', label: 'Venue Stats',    desc: 'Ground records' },
-  { id: 'h2h',     icon: '⚔️', label: 'Head-to-Head',  desc: 'Team history' },
-  { id: 'recent',  icon: '📅', label: 'Recent Matches', desc: 'Latest results' },
-  { id: 'insight', icon: '🎯', label: 'Match Insights', desc: 'Pre-match report' },
+  { id: 'ask',      icon: '💬', label: 'Ask AI',          desc: 'Cricket Q&A' },
+  { id: 'batter',   icon: '🏏', label: 'Batter Stats',    desc: 'Batting analysis' },
+  { id: 'bowler',   icon: '🎳', label: 'Bowler Stats',    desc: 'Bowling analysis' },
+  { id: 'insights', icon: '📊', label: 'Squad Insights',  desc: 'Cricsheet + AI' },
+  { id: 'venue',    icon: '🏟️', label: 'Venue Stats',     desc: 'Ground records' },
+  { id: 'h2h',      icon: '⚔️', label: 'Head-to-Head',   desc: 'Team history' },
+  { id: 'recent',   icon: '📅', label: 'Recent Matches',  desc: 'Latest results' },
+  { id: 'insight',  icon: '🎯', label: 'Match Insights',  desc: 'Pre-match report' },
 ]
 
 const STATS = [
@@ -189,14 +191,14 @@ export default function App() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
               transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            >
-              {active === 'ask'     && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'batter'  && <BatterStats   apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'bowler'  && <BowlerStats   apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'venue'   && <VenueStats    apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'h2h'     && <HeadToHead    apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'recent'  && <RecentMatches apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'insight' && <MatchInsights apiBase={API_BASE} format={format} grounded={grounded} />}
+            >              {active === 'ask'      && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'batter'   && <BatterStats   apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'bowler'   && <BowlerStats   apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'insights' && <Insights      apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'venue'    && <VenueStats    apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'h2h'      && <HeadToHead    apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'recent'   && <RecentMatches apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'insight'  && <MatchInsights apiBase={API_BASE} format={format} grounded={grounded} />}
             </motion.div>
           </AnimatePresence>
         </main>
