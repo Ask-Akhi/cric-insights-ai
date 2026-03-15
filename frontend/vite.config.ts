@@ -5,6 +5,14 @@ const _react = (react as any).default ?? react
 
 export default defineConfig({
   plugins: [_react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8002',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     // Raise the warning threshold — 800 KB is fine for this app
     chunkSizeWarningLimit: 1000,
