@@ -8,6 +8,8 @@ import HeadToHead from './HeadToHead'
 import RecentMatches from './RecentMatches'
 import MatchInsights from './MatchInsights'
 import Insights from './Insights'
+import PlayerCompare from './PlayerCompare'
+import FantasyXI from './FantasyXI'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
@@ -15,6 +17,8 @@ const TOOLS = [
   { id: 'ask',      icon: '💬', label: 'Ask AI',          desc: 'Cricket Q&A' },
   { id: 'batter',   icon: '🏏', label: 'Batter Stats',    desc: 'Batting analysis' },
   { id: 'bowler',   icon: '🎳', label: 'Bowler Stats',    desc: 'Bowling analysis' },
+  { id: 'compare',  icon: '⚖️', label: 'Compare Players', desc: 'Side-by-side stats' },
+  { id: 'fantasy',  icon: '🏆', label: 'Fantasy XI',      desc: 'Score & rank squad' },
   { id: 'insights', icon: '📊', label: 'Squad Insights',  desc: 'Cricsheet + AI' },
   { id: 'venue',    icon: '🏟️', label: 'Venue Stats',     desc: 'Ground records' },
   { id: 'h2h',      icon: '⚔️', label: 'Head-to-Head',   desc: 'Team history' },
@@ -23,9 +27,9 @@ const TOOLS = [
 ]
 
 const STATS = [
-  { value: '120K+', label: 'Matches Analysed', icon: '🏏' },
+  { value: '21K+',  label: 'Matches Analysed', icon: '🏏' },
   { value: '18K+',  label: 'Players Tracked',  icon: '👤' },
-  { value: '50+',   label: 'Venues Covered',   icon: '🏟️' },
+  { value: '10M+',  label: 'Balls in Dataset', icon: '📊' },
   { value: 'Live',  label: 'Web Grounding',    icon: '🌐' },
 ]
 
@@ -194,6 +198,8 @@ export default function App() {
             >              {active === 'ask'      && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} />}
               {active === 'batter'   && <BatterStats   apiBase={API_BASE} format={format} grounded={grounded} />}
               {active === 'bowler'   && <BowlerStats   apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'compare'  && <PlayerCompare apiBase={API_BASE} format={format} grounded={grounded} />}
+              {active === 'fantasy'  && <FantasyXI     apiBase={API_BASE} format={format} grounded={grounded} />}
               {active === 'insights' && <Insights      apiBase={API_BASE} format={format} grounded={grounded} />}
               {active === 'venue'    && <VenueStats    apiBase={API_BASE} format={format} grounded={grounded} />}
               {active === 'h2h'      && <HeadToHead    apiBase={API_BASE} format={format} grounded={grounded} />}

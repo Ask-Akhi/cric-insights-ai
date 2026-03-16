@@ -15,7 +15,7 @@ export default function BatterStats({ apiBase, format, grounded }: Props) {
     // Fetch charts in parallel with AI text
     setChartData(null)
     setChartLoading(true)
-    callPlayerStats(apiBase, player)
+    callPlayerStats(apiBase, player, format)
       .then(setChartData)
       .catch(() => setChartData(null))
       .finally(() => setChartLoading(false))

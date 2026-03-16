@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { callAsk, callH2H, H2HData } from '../lib/api'
+import { callAsk, callH2H, callTeamSearch, H2HData } from '../lib/api'
+import GenericSearchInput from '../components/GenericSearchInput'
 import ReactMarkdown from 'react-markdown'
 
 interface Props { apiBase: string; format: string; grounded: boolean }
@@ -56,17 +57,27 @@ export default function HeadToHead({ apiBase, format, grounded }: Props) {
         </div>
       </div>
 
-      {/* Form */}
+            {/* Form */}
       <form onSubmit={handleSubmit} className="glass-strong p-6 space-y-4">
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="field-label">Team A</label>
-            <input className="input" placeholder="e.g. India" value={teamA} onChange={e => setTeamA(e.target.value)} required />
-          </div>
-          <div>
-            <label className="field-label">Team B</label>
-            <input className="input" placeholder="e.g. Australia" value={teamB} onChange={e => setTeamB(e.target.value)} required />
-          </div>
+          <GenericSearchInput
+            id="h2h-team-a"
+            label="Team A"
+            value={teamA}
+            onChange={setTeamA}
+            onSearch={q => callTeamSearch(apiBase, q)}
+            placeholder="e.g. India"
+            icon="🏏"
+          />
+          <GenericSearchInput
+            id="h2h-team-b"
+            label="Team B"
+            value={teamB}
+            onChange={setTeamB}
+            onSearch={q => callTeamSearch(apiBase, q)}
+            placeholder="e.g. Australia"
+            icon="🏏"
+          />
         </div>
         <button type="submit" disabled={loading || aiLoading || !teamA.trim() || !teamB.trim()} className="btn-primary w-full">
           {loading || aiLoading ? <><span className="animate-spin mr-2">⏳</span>Analysing…</> : '⚔️ Compare Teams'}
@@ -111,9 +122,7 @@ export default function HeadToHead({ apiBase, format, grounded }: Props) {
                           <span className="text-slate-600 text-xs">{(data.matches ?? 0) - (data.wins_a ?? 0) - (data.wins_b ?? 0)} no result</span>
                           <span className="text-red-400 font-bold text-lg">{data.wins_b} <span className="text-xs text-slate-500 font-normal">wins</span></span>
                         </div>
-                      </div>
-
-                      {/* Top batters */}
+                      </div>                      {/* Top batters */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {data.top_batters_a && data.top_batters_a.length > 0 && (
                           <div className="glass p-5 space-y-3">
@@ -135,6 +144,34 @@ export default function HeadToHead({ apiBase, format, grounded }: Props) {
                                 <span className="text-[10px] font-bold text-slate-600 w-4">{i + 1}</span>
                                 <span className="text-sm text-slate-200 flex-1 truncate">{b.batter}</span>
                                 <span className="text-sm font-bold text-red-400">{b.runs}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Top bowlers */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {data.top_bowlers_a && data.top_bowlers_a.length > 0 && (
+                          <div className="glass p-5 space-y-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-blue-400">🎳 {teamA} Top Bowlers</p>
+                            {data.top_bowlers_a.map((b, i) => (
+                              <div key={b.bowler} className="flex items-center gap-3">
+                                <span className="text-[10px] font-bold text-slate-600 w-4">{i + 1}</span>
+                                <span className="text-sm text-slate-200 flex-1 truncate">{b.bowler}</span>
+                                <span className="text-sm font-bold text-amber-400">{b.wickets}w</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {data.top_bowlers_b && data.top_bowlers_b.length > 0 && (
+                          <div className="glass p-5 space-y-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-red-400">🎳 {teamB} Top Bowlers</p>
+                            {data.top_bowlers_b.map((b, i) => (
+                              <div key={b.bowler} className="flex items-center gap-3">
+                                <span className="text-[10px] font-bold text-slate-600 w-4">{i + 1}</span>
+                                <span className="text-sm text-slate-200 flex-1 truncate">{b.bowler}</span>
+                                <span className="text-sm font-bold text-amber-400">{b.wickets}w</span>
                               </div>
                             ))}
                           </div>

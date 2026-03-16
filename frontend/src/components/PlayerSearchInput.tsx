@@ -18,7 +18,7 @@ export default function PlayerSearchInput({
   apiBase,
   value,
   onChange,
-  placeholder = 'e.g. V Kohli',
+  placeholder = 'e.g. Rohit Sharma or RG Sharma',
   label = 'Player Name',
   id = 'player-search',
 }: Props) {
@@ -153,11 +153,9 @@ export default function PlayerSearchInput({
             </li>
           ))}
         </ul>
-      )}
-
-      {/* Hint text */}
+      )}      {/* Hint text */}
       <p className="text-[10px] text-slate-600 mt-1.5 px-1">
-        Type at least 2 characters to search Cricsheet player names
+        Type a full name (e.g. "Virat Kohli") or Cricsheet initials (e.g. "V Kohli")
       </p>
     </div>
   )

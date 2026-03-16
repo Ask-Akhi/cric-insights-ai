@@ -1,5 +1,7 @@
 import React from 'react'
 import SquadBuilder from '../components/SquadBuilder'
+import GenericSearchInput from '../components/GenericSearchInput'
+import { callVenueSearch, callTeamSearch } from '../lib/api'
 
 export interface MatchFormData {
   format: string
@@ -35,45 +37,41 @@ export default function MatchForm({ apiBase, value, onChange, formatLocked }: Pr
           <select className="input" value={value.format} onChange={set('format')}>
             {FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
           </select>
-        </div>
-      )}
+        </div>      )}
 
       {/* Teams */}
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="field-label">Team A</label>
-          <input
-            className="input"
-            placeholder="e.g. Mumbai Indians"
-            value={value.teamA}
-            onChange={set('teamA')}
-            required
-          />
-        </div>
-        <div>
-          <label className="field-label">Team B</label>
-          <input
-            className="input"
-            placeholder="e.g. Chennai Super Kings"
-            value={value.teamB}
-            onChange={set('teamB')}
-            required
-          />
-        </div>
+        <GenericSearchInput
+          id="form-team-a"
+          label="Team A"
+          value={value.teamA}
+          onChange={v => onChange({ ...value, teamA: v })}
+          onSearch={q => callTeamSearch(apiBase, q)}
+          placeholder="e.g. Mumbai Indians"
+          icon="🏏"
+        />
+        <GenericSearchInput
+          id="form-team-b"
+          label="Team B"
+          value={value.teamB}
+          onChange={v => onChange({ ...value, teamB: v })}
+          onSearch={q => callTeamSearch(apiBase, q)}
+          placeholder="e.g. Chennai Super Kings"
+          icon="🏏"
+        />
       </div>
 
       {/* Venue + Date */}
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="field-label">Venue</label>
-          <input
-            className="input"
-            placeholder="e.g. Wankhede Stadium"
-            value={value.venue}
-            onChange={set('venue')}
-            required
-          />
-        </div>
+        <GenericSearchInput
+          id="form-venue"
+          label="Venue"
+          value={value.venue}
+          onChange={v => onChange({ ...value, venue: v })}
+          onSearch={q => callVenueSearch(apiBase, q)}
+          placeholder="e.g. Wankhede Stadium"
+          icon="🏟️"
+        />
         <div>
           <label className="field-label">
             Match Date <span className="text-slate-600">(optional)</span>

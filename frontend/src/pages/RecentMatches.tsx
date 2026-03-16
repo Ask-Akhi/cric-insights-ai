@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { callRecentMatches, callAsk, MatchRow } from '../lib/api'
+import { callRecentMatches, callAsk, callTeamSearch, MatchRow } from '../lib/api'
+import GenericSearchInput from '../components/GenericSearchInput'
 import ReactMarkdown from 'react-markdown'
 
 interface Props { apiBase: string; format: string; grounded: boolean }
@@ -78,12 +79,19 @@ export default function RecentMatches({ apiBase, format, grounded }: Props) {
         </div>
       </div>
 
-      {/* Form */}
+            {/* Form */}
       <form onSubmit={handleSubmit} className="glass-strong p-6 space-y-4">
         <div className="grid grid-cols-3 gap-4">
           <div className="col-span-2">
-            <label className="field-label">Team Name <span className="text-slate-600">(optional)</span></label>
-            <input className="input" placeholder="e.g. Mumbai Indians (or leave blank for all)" value={team} onChange={e => setTeam(e.target.value)} />
+            <GenericSearchInput
+              id="recent-team"
+              label="Team Name (optional)"
+              value={team}
+              onChange={setTeam}
+              onSearch={q => callTeamSearch(apiBase, q)}
+              placeholder="e.g. Mumbai Indians (or leave blank for all)"
+              icon="🏏"
+            />
           </div>
           <div>
             <label className="field-label">No. of Matches</label>

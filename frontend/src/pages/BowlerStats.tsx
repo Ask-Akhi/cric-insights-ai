@@ -14,7 +14,7 @@ export default function BowlerStats({ apiBase, format, grounded }: Props) {
   const handleSubmit = async () => {
     setChartData(null)
     setChartLoading(true)
-    callPlayerStats(apiBase, player)
+    callPlayerStats(apiBase, player, format)
       .then(setChartData)
       .catch(() => setChartData(null))
       .finally(() => setChartLoading(false))

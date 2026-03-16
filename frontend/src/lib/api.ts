@@ -45,8 +45,9 @@ export interface PlayerStats {
   } | null
 }
 
-export async function callPlayerStats(apiBase: string, playerName: string): Promise<PlayerStats> {
-  const res = await fetch(`${apiBase}/api/players/${encodeURIComponent(playerName)}/stats`)
+export async function callPlayerStats(apiBase: string, playerName: string, format?: string): Promise<PlayerStats> {
+  const params = format ? `?format=${encodeURIComponent(format)}` : ''
+  const res = await fetch(`${apiBase}/api/players/${encodeURIComponent(playerName)}/stats${params}`)
   if (!res.ok) throw new Error(`API ${res.status}`)
   return res.json()
 }
@@ -108,6 +109,20 @@ export async function callInsights(
   return res.json()
 }
 
+export async function callVenueSearch(apiBase: string, q: string): Promise<string[]> {
+  const res = await fetch(`${apiBase}/api/matches/venues?q=${encodeURIComponent(q)}&limit=15`)
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  const json = await res.json()
+  return json.venues ?? []
+}
+
+export async function callTeamSearch(apiBase: string, q: string): Promise<string[]> {
+  const res = await fetch(`${apiBase}/api/matches/teams?q=${encodeURIComponent(q)}&limit=15`)
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  const json = await res.json()
+  return json.teams ?? []
+}
+
 // ── Venue stats (Cricsheet) ───────────────────────────────────────────────────
 export interface VenueStatsData {
   venue: string
@@ -140,6 +155,8 @@ export interface H2HData {
   wins_b?: number
   top_batters_a?: { batter: string; runs: number }[]
   top_batters_b?: { batter: string; runs: number }[]
+  top_bowlers_a?: { bowler: string; wickets: number }[]
+  top_bowlers_b?: { bowler: string; wickets: number }[]
 }
 
 export async function callH2H(

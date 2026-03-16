@@ -26,6 +26,34 @@ class MatchInput(BaseModel):
     squad_b: List[str]
 
 
+@router.get("/venues")
+def list_venues(q: str | None = None, limit: int = 20):
+    """Return distinct venue names, optionally filtered by query string."""
+    provider = _get_provider()
+    lf = provider.datasets.get("balls")
+    if lf is None:
+        return {"venues": []}
+    vq = lf.select(pl.col("venue")).filter(pl.col("venue").is_not_null()).unique()
+    if q:
+        vq = vq.filter(pl.col("venue").str.to_lowercase().str.contains(q.lower()))
+    venues = vq.sort("venue").limit(limit).collect().get_column("venue").to_list()
+    return {"venues": venues}
+
+
+@router.get("/teams")
+def list_teams(q: str | None = None, limit: int = 20):
+    """Return distinct team names from batting_team."""
+    provider = _get_provider()
+    lf = provider.datasets.get("balls")
+    if lf is None:
+        return {"teams": []}
+    tq = lf.select(pl.col("batting_team").alias("team")).filter(pl.col("team").is_not_null()).unique()
+    if q:
+        tq = tq.filter(pl.col("team").str.to_lowercase().str.contains(q.lower()))
+    teams = tq.sort("team").limit(limit).collect().get_column("team").to_list()
+    return {"teams": teams}
+
+
 @router.get("/")
 def list_matches(
     format: Optional[str] = Query(None),
@@ -40,13 +68,27 @@ def list_matches(
 
     import polars as pl
     df = pl.DataFrame(matches)
-
     if team:
-        # Filter by winner or toss_winner containing team name
-        df = df.filter(
-            pl.col("winner").str.to_lowercase().str.contains(team.lower())
-            | pl.col("toss_winner").str.to_lowercase().str.contains(team.lower())
-        )
+        # Filter matches where the team appears as winner, toss_winner, or batting_team
+        lf_balls = provider.datasets.get("balls")
+        if lf_balls is not None:
+            team_lower = team.lower()
+            match_ids_with_team = (
+                lf_balls.filter(
+                    pl.col("batting_team").str.to_lowercase().str.contains(team_lower)
+                )
+                .select("match_id")
+                .unique()
+                .collect()
+                .get_column("match_id")
+                .to_list()
+            )
+            df = df.filter(pl.col("match_id").is_in(match_ids_with_team))
+        else:
+            df = df.filter(
+                pl.col("winner").str.to_lowercase().str.contains(team.lower())
+                | pl.col("toss_winner").str.to_lowercase().str.contains(team.lower())
+            )
     if venue:
         df = df.filter(
             pl.col("venue").str.to_lowercase().str.contains(venue.lower())
@@ -123,13 +165,14 @@ def head_to_head(
     total = df.select(pl.col("match_id").n_unique()).item()
     wins_a = df.filter(pl.col("winner") == team_a).select(pl.col("match_id").n_unique()).item()
     wins_b = df.filter(pl.col("winner") == team_b).select(pl.col("match_id").n_unique()).item()
+    RUNOUT_TYPES = ["run out", "retired hurt", "retired out", "obstructing the field"]
 
     top_bat_a = (
         df.filter(pl.col("batting_team") == team_a)
         .group_by("batter")
         .agg(pl.col("runs_off_bat").sum().alias("runs"))
         .sort("runs", descending=True)
-        .head(3)
+        .head(5)
         .to_dicts()
     )
     top_bat_b = (
@@ -137,7 +180,34 @@ def head_to_head(
         .group_by("batter")
         .agg(pl.col("runs_off_bat").sum().alias("runs"))
         .sort("runs", descending=True)
-        .head(3)
+        .head(5)
+        .to_dicts()
+    )
+    # Top wicket-takers for each team (bowling against the other)
+    top_bowl_a = (
+        df.filter(
+            (pl.col("batting_team") == team_b)
+            & pl.col("player_dismissed").is_not_null()
+            & ~pl.col("wicket_type").is_in(RUNOUT_TYPES)
+        )
+        .group_by("bowler")
+        .len()
+        .rename({"len": "wickets"})
+        .sort("wickets", descending=True)
+        .head(5)
+        .to_dicts()
+    )
+    top_bowl_b = (
+        df.filter(
+            (pl.col("batting_team") == team_a)
+            & pl.col("player_dismissed").is_not_null()
+            & ~pl.col("wicket_type").is_in(RUNOUT_TYPES)
+        )
+        .group_by("bowler")
+        .len()
+        .rename({"len": "wickets"})
+        .sort("wickets", descending=True)
+        .head(5)
         .to_dicts()
     )
 
@@ -150,6 +220,8 @@ def head_to_head(
         "wins_b": wins_b,
         "top_batters_a": top_bat_a,
         "top_batters_b": top_bat_b,
+        "top_bowlers_a": top_bowl_a,
+        "top_bowlers_b": top_bowl_b,
     }
 
 

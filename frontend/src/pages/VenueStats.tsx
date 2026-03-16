@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { callAsk, callVenueStats, VenueStatsData } from '../lib/api'
+import { callAsk, callVenueStats, callVenueSearch, VenueStatsData } from '../lib/api'
+import GenericSearchInput from '../components/GenericSearchInput'
 import ReactMarkdown from 'react-markdown'
 
 interface Props { apiBase: string; format: string; grounded: boolean }
@@ -60,18 +61,17 @@ export default function VenueStats({ apiBase, format, grounded }: Props) {
         </div>
       </div>
 
-      {/* Form */}
+            {/* Form */}
       <form onSubmit={handleSubmit} className="glass-strong p-6 space-y-4">
-        <div>
-          <label className="field-label">Venue / Stadium Name</label>
-          <input
-            className="input"
-            placeholder="e.g. Wankhede Stadium"
-            value={venue}
-            onChange={e => setVenue(e.target.value)}
-            required
-          />
-        </div>
+        <GenericSearchInput
+          id="venue-search"
+          label="Venue / Stadium Name"
+          value={venue}
+          onChange={setVenue}
+          onSearch={q => callVenueSearch(apiBase, q)}
+          placeholder="e.g. Wankhede Stadium"
+          icon="🏟️"
+        />
         <button type="submit" disabled={loading || aiLoading || !venue.trim()} className="btn-primary w-full">
           {loading || aiLoading ? <><span className="animate-spin mr-2">⏳</span>Analysing…</> : '🏟️ Get Venue Stats'}
         </button>
