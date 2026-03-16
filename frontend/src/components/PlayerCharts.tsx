@@ -1,9 +1,85 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   BarChart, Bar, LineChart, Line, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
 import { PlayerStats } from '../lib/api'
+
+// ── Cricsheet name → Wikipedia article title (for photo lookup) ───────────────
+const WIKI_NAME: Record<string, string> = {
+  'RG Sharma':          'Rohit Sharma',
+  'V Kohli':            'Virat Kohli',
+  'MS Dhoni':           'MS Dhoni',
+  'JJ Bumrah':          'Jasprit Bumrah',
+  'S Gill':             'Shubman Gill',
+  'HH Pandya':          'Hardik Pandya',
+  'KL Rahul':           'KL Rahul',
+  'RA Jadeja':          'Ravindra Jadeja',
+  'R Ashwin':           'Ravichandran Ashwin',
+  'SA Yadav':           'Suryakumar Yadav',
+  'RR Pant':            'Rishabh Pant',
+  'SS Iyer':            'Shreyas Iyer',
+  'Ishan Kishan':       'Ishan Kishan',
+  'AR Patel':           'Axar Patel',
+  'DL Chahar':          'Deepak Chahar',
+  'Kuldeep Yadav':      'Kuldeep Yadav',
+  'YS Chahal':          'Yuzvendra Chahal',
+  'Yuvraj Singh':       'Yuvraj Singh',
+  'SR Tendulkar':       'Sachin Tendulkar',
+  'SC Ganguly':         'Sourav Ganguly',
+  'R Dravid':           'Rahul Dravid',
+  'Mohammed Shami':     'Mohammed Shami',
+  'SPD Smith':          'Steve Smith (cricketer)',
+  'DA Warner':          'David Warner (cricketer)',
+  'PJ Cummins':         'Pat Cummins',
+  'MA Starc':           'Mitchell Starc',
+  'JR Hazlewood':       'Josh Hazlewood',
+  'GJ Maxwell':         'Glenn Maxwell',
+  'TM Head':            'Travis Head',
+  'M Labuschagne':      'Marnus Labuschagne',
+  'A Zampa':            'Adam Zampa',
+  'JE Root':            'Joe Root',
+  'BA Stokes':          'Ben Stokes',
+  'JC Buttler':         'Jos Buttler',
+  'JC Archer':          'Jofra Archer',
+  'MA Wood':            'Mark Wood (cricketer)',
+  'JM Bairstow':        'Jonny Bairstow',
+  'HC Brook':           'Harry Brook',
+  'JM Anderson':        'James Anderson (cricketer)',
+  'SCJ Broad':          'Stuart Broad',
+  'KS Williamson':      'Kane Williamson',
+  'LRPL Taylor':        'Ross Taylor',
+  'TA Boult':           'Trent Boult',
+  'TG Southee':         'Tim Southee',
+  'Babar Azam':         'Babar Azam',
+  'Shaheen Shah Afridi':'Shaheen Shah Afridi',
+  'Mohammad Rizwan':    'Mohammad Rizwan',
+  'Shadab Khan':        'Shadab Khan',
+  'AB de Villiers':     'AB de Villiers',
+  'Q de Kock':          'Quinton de Kock',
+  'K Rabada':           'Kagiso Rabada',
+  'DW Steyn':           'Dale Steyn',
+  'F du Plessis':       'Faf du Plessis',
+  'AK Markram':         'Aiden Markram',
+  'CH Gayle':           'Chris Gayle',
+  'KA Pollard':         'Kieron Pollard',
+  'AD Russell':         'Andre Russell',
+  'N Pooran':           'Nicholas Pooran',
+  'KC Sangakkara':      'Kumar Sangakkara',
+  'DPMD Jayawardene':   'Mahela Jayawardene',
+  'SL Malinga':         'Lasith Malinga',
+  'AD Mathews':         'Angelo Mathews',
+  'AS Hasaranga':       'Wanindu Hasaranga',
+  'Rashid Khan':        'Rashid Khan (cricketer)',
+  'Mohammad Nabi':      'Mohammad Nabi',
+  'Shakib Al Hasan':    'Shakib Al Hasan',
+  'Mushfiqur Rahim':    'Mushfiqur Rahim',
+  'Tamim Iqbal':        'Tamim Iqbal',
+}
+
+function wikiTitle(cricsheetName: string): string {
+  return WIKI_NAME[cricsheetName] ?? cricsheetName
+}
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 const ORANGE     = '#ff6b35'
@@ -24,8 +100,25 @@ const TT = {
   itemStyle:  { color: '#f1f5f9' },
 }
 
-// ── Avatar — deterministic colour gradient from player name ───────────────────
+// ── Avatar — tries Wikipedia photo, falls back to gradient initials ───────────
 function PlayerAvatar({ name }: { name: string }) {
+  const [imgSrc, setImgSrc] = useState<string | null>(null)
+  const [imgErr, setImgErr] = useState(false)
+  useEffect(() => {
+    setImgSrc(null)
+    setImgErr(false)
+    const title = wikiTitle(name)
+    const photoUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=pageimages&format=json&pithumbsize=200&origin=*`
+    fetch(photoUrl)
+      .then(r => r.json())
+      .then(data => {
+        const pages = data?.query?.pages ?? {}
+        const page = Object.values(pages)[0] as { thumbnail?: { source: string } }
+        if (page?.thumbnail?.source) setImgSrc(page.thumbnail.source)
+        else setImgErr(true)
+      })
+      .catch(() => setImgErr(true))
+  }, [name])
   const initials = name
     .split(' ')
     .filter(Boolean)
@@ -34,13 +127,33 @@ function PlayerAvatar({ name }: { name: string }) {
     .join('')
   const hue  = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360
   const hue2 = (hue + 45) % 360
-  return (
+
+  const avatarClass = "w-24 h-24 rounded-full flex-shrink-0 shadow-xl"
+  const ringStyle = { border: '3px solid rgba(255,107,53,0.5)', boxShadow: '0 0 20px rgba(255,107,53,0.2)' }
+
+  // Still fetching — shimmer placeholder
+  if (!imgSrc && !imgErr) {
+    return (
+      <div className={`${avatarClass} animate-pulse`}
+        style={{ background: 'rgba(255,255,255,0.06)', ...ringStyle }} />
+    )
+  }
+
+  return imgSrc && !imgErr ? (
+    <img
+      src={imgSrc}
+      alt={wikiTitle(name)}
+      onError={() => setImgErr(true)}
+      className={`${avatarClass} object-cover object-top`}
+      style={ringStyle}
+    />
+  ) : (
     <div
-      className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white flex-shrink-0 select-none shadow-lg"
+      className={`${avatarClass} flex items-center justify-center text-3xl font-bold text-white select-none`}
       style={{
         background: `linear-gradient(135deg, hsl(${hue},78%,52%), hsl(${hue2},88%,42%))`,
-        border: '2px solid rgba(255,255,255,0.18)',
-        textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+        ...ringStyle,
+        textShadow: '0 2px 8px rgba(0,0,0,0.5)',
       }}
     >
       {initials}
@@ -76,28 +189,28 @@ export default function PlayerCharts({ stats }: { stats: PlayerStats }) {
   const [tab, setTab] = useState<'bat' | 'bowl'>(batter ? 'bat' : 'bowl')
 
   return (
-    <div className="space-y-5 animate-fade-in">
-
-      {/* Player header */}
-      <div className="flex items-center gap-5 p-4 rounded-2xl" style={{ background: 'rgba(255,107,53,0.05)', border: '1px solid rgba(255,107,53,0.15)' }}>
+    <div className="space-y-5 animate-fade-in">      {/* Player header */}
+      <div className="flex items-center gap-5 p-5 rounded-2xl" style={{ background: 'linear-gradient(135deg, rgba(255,107,53,0.08), rgba(245,200,66,0.04))', border: '1px solid rgba(255,107,53,0.2)' }}>
         <PlayerAvatar name={player} />
         <div className="flex-1 min-w-0">
-          <h3 className="text-xl font-bold text-white truncate" style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
-            {player}
+          <p className="text-[10px] font-bold uppercase tracking-widest text-orange-500 mb-1">Player Profile</p>
+          <h3 className="text-2xl font-bold text-white leading-tight truncate" style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
+            {wikiTitle(player)}
           </h3>
+          <p className="text-xs text-slate-500 mt-0.5 font-mono">{player}</p>
           <div className="flex gap-1.5 mt-2 flex-wrap">
             {batter && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: 'rgba(255,107,53,0.15)', color: ORANGE }}>
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold" style={{ background: 'rgba(255,107,53,0.15)', color: ORANGE, border: '1px solid rgba(255,107,53,0.2)' }}>
                 🏏 Batter
               </span>
             )}
             {bowler && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: 'rgba(245,200,66,0.15)', color: GOLD }}>
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold" style={{ background: 'rgba(245,200,66,0.15)', color: GOLD, border: '1px solid rgba(245,200,66,0.2)' }}>
                 🎳 Bowler
               </span>
             )}
             {!batter && !bowler && (
-              <span className="text-xs text-slate-500">No Cricsheet data found for this player</span>
+              <span className="text-xs text-slate-500">No Cricsheet data found</span>
             )}
           </div>
         </div>

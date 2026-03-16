@@ -8,6 +8,10 @@ interface Props {
   subtitle?: string
   onSubmit: () => Promise<string>
   children: React.ReactNode
+  /** Optional panel rendered side-by-side with the AI response */
+  sidePanel?: React.ReactNode
+  /** If true, side panel shows while loading too */
+  sidePanelReady?: boolean
 }
 
 function LoadingSkeleton() {
@@ -25,7 +29,7 @@ function LoadingSkeleton() {
   )
 }
 
-export default function ToolShell({ icon, title, subtitle, onSubmit, children }: Props) {
+export default function ToolShell({ icon, title, subtitle, onSubmit, children, sidePanel, sidePanelReady }: Props) {
   const [loading, setLoading] = useState(false)
   const [answer, setAnswer]   = useState<string | null>(null)
   const [error, setError]     = useState<string | null>(null)
@@ -52,6 +56,8 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, children }:
   }
 
   const isCached = answer?.startsWith('⚡')
+  const showSide = sidePanel && sidePanelReady
+  const hasResult = loading || answer || error
 
   return (
     <div className="space-y-5">
@@ -90,69 +96,65 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, children }:
         </form>
       </div>
 
-      {/* ── Result ──────────────────────────────────────────── */}
+      {/* ── Result area — 2-col when side panel is ready ──── */}
       <AnimatePresence>
-        {loading && (
+        {hasResult && (
           <motion.div
-            key="skeleton"
+            key="result-area"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="glass p-6"
-          >
-            <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              <span className="text-orange-400 text-xs font-semibold tracking-wide uppercase">Generating Analysis</span>
-              <span className="text-xs text-slate-600 ml-auto font-mono">{(elapsed / 1000).toFixed(1)}s</span>
-            </div>
-            <LoadingSkeleton />
-          </motion.div>
-        )}
-
-        {!loading && (answer || error) && (
-          <motion.div
-            key="result"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="glass p-6"
-          >            {error ? (
-              <div className="flex items-start gap-3 text-sm">
-                {error.includes('GEMINI_API_KEY') || error.includes('OPENAI_API_KEY') || error.includes('not configured') ? (
-                  <div className="w-full rounded-xl p-4 space-y-2" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
-                    <p className="text-red-400 font-semibold">⚙️ API Key Not Configured</p>
-                    <p className="text-slate-400 text-xs leading-relaxed">
-                      The <code className="text-orange-300">GEMINI_API_KEY</code> environment variable is missing.<br />
-                      Go to <strong className="text-white">Railway → your service → Variables</strong> and add it, then Railway will restart automatically.
-                    </p>
+            className={showSide ? 'grid grid-cols-1 xl:grid-cols-2 gap-5 items-start' : ''}
+          >
+            {/* ── Left: AI text ── */}
+            <div className="glass p-6">
+              {loading ? (
+                <>
+                  <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span className="text-orange-400 text-xs font-semibold tracking-wide uppercase">Generating Analysis</span>
+                    <span className="text-xs text-slate-600 ml-auto font-mono">{(elapsed / 1000).toFixed(1)}s</span>
                   </div>
-                ) : (
-                  <><span className="text-lg flex-shrink-0 text-red-400">❌</span><span className="text-red-400">{error}</span></>
-                )}
-              </div>
-            ) : (
-              <>
-                {/* Result header */}
-                <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <span className="text-[10px] font-bold tracking-widest uppercase text-orange-400">💡 AI Analysis</span>
-                  {isCached && (
-                    <span className="stat-badge stat-badge-gold">⚡ cached</span>
+                  <LoadingSkeleton />
+                </>
+              ) : error ? (
+                <div className="flex items-start gap-3 text-sm">
+                  {error.includes('GEMINI_API_KEY') || error.includes('OPENAI_API_KEY') || error.includes('not configured') ? (
+                    <div className="w-full rounded-xl p-4 space-y-2" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                      <p className="text-red-400 font-semibold">⚙️ API Key Not Configured</p>
+                      <p className="text-slate-400 text-xs leading-relaxed">
+                        The <code className="text-orange-300">GEMINI_API_KEY</code> environment variable is missing.<br />
+                        Go to <strong className="text-white">Railway → your service → Variables</strong> and add it, then Railway will restart automatically.
+                      </p>
+                    </div>
+                  ) : (
+                    <><span className="text-lg flex-shrink-0 text-red-400">❌</span><span className="text-red-400">{error}</span></>
                   )}
-                  <span className="ml-auto text-xs text-slate-600 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
                 </div>
-                {/* Markdown content */}
-                <div className="prose-cricket">
-                  <ReactMarkdown>
-                    {isCached ? answer!.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer!}
-                  </ReactMarkdown>
-                </div>
-                {/* Footer actions */}
-                <div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                  <button className="btn-ghost" onClick={() => { setAnswer(null); setError(null); }}>
-                    ↩ Clear
-                  </button>
-                </div>
-              </>
+              ) : answer ? (
+                <>
+                  <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span className="text-[10px] font-bold tracking-widest uppercase text-orange-400">💡 AI Analysis</span>
+                    {isCached && <span className="stat-badge stat-badge-gold">⚡ cached</span>}
+                    <span className="ml-auto text-xs text-slate-600 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
+                  </div>
+                  <div className="prose-cricket">
+                    <ReactMarkdown>
+                      {isCached ? answer.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer}
+                    </ReactMarkdown>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button className="btn-ghost" onClick={() => { setAnswer(null); setError(null) }}>↩ Clear</button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {/* ── Right: side panel (charts) ── */}
+            {showSide && (
+              <div className="glass p-6">
+                {sidePanel}
+              </div>
             )}
           </motion.div>
         )}

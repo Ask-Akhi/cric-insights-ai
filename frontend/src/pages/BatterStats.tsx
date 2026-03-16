@@ -12,7 +12,6 @@ export default function BatterStats({ apiBase, format, grounded }: Props) {
   const [chartLoading, setChartLoading] = useState(false)
 
   const handleSubmit = async () => {
-    // Fetch charts in parallel with AI text
     setChartData(null)
     setChartLoading(true)
     callPlayerStats(apiBase, player, format)
@@ -27,45 +26,48 @@ export default function BatterStats({ apiBase, format, grounded }: Props) {
     })
   }
 
-  return (
-    <div className="space-y-6">
-      <ToolShell
-        icon="🏏"
-        title="Batter Statistics"
-        subtitle="Career averages, strike rate, recent form, strengths & fantasy value"
-        onSubmit={handleSubmit}
-      >
-        <PlayerSearchInput
-          apiBase={apiBase}
-          value={player}
-          onChange={setPlayer}
-          placeholder="e.g. V Kohli"
-          label="Player Name"
-          id="batter-search"
-        />
-      </ToolShell>
-
-      {/* Charts panel — shown below the AI result */}
+  // Charts panel — passed as sidePanel prop
+  const chartsPanel = (
+    <>
+      <div className="flex items-center gap-2 mb-4 pb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <span className="text-[10px] font-bold tracking-widest uppercase text-amber-400">📊 Cricsheet Data</span>
+        {chartLoading && (
+          <span className="ml-auto text-[10px] text-slate-500 animate-pulse">Loading…</span>
+        )}
+      </div>
       {chartLoading && (
-        <div className="glass p-6 space-y-3 animate-fade-in">
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Loading Cricsheet data…</p>
-          <div className="shimmer-line h-4 w-1/2" />
-          <div className="shimmer-line h-32 w-full" />
+        <div className="space-y-3">
+          <div className="shimmer-line h-20 w-full rounded-xl" />
+          <div className="shimmer-line h-4 w-2/3" />
+          <div className="shimmer-line h-32 w-full rounded-xl" />
         </div>
       )}
-      {!chartLoading && chartData?.found && (
-        <div className="glass p-6">
-          <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <span className="text-[10px] font-bold tracking-widest uppercase text-amber-400">📊 Cricsheet Data Charts</span>
-          </div>
-          <PlayerCharts stats={chartData} />
-        </div>
-      )}
+      {!chartLoading && chartData?.found && <PlayerCharts stats={chartData} />}
       {!chartLoading && chartData && !chartData.found && (
-        <div className="glass p-4 text-xs text-slate-500 text-center">
-          No Cricsheet match data found for <strong className="text-slate-300">{player}</strong> — charts unavailable.
-        </div>
+        <p className="text-xs text-slate-500 text-center py-6">
+          No Cricsheet data found for <strong className="text-slate-300">{player}</strong>
+        </p>
       )}
-    </div>
+    </>
+  )
+
+  return (
+    <ToolShell
+      icon="🏏"
+      title="Batter Statistics"
+      subtitle="Career averages, strike rate, recent form, strengths & fantasy value"
+      onSubmit={handleSubmit}
+      sidePanel={chartsPanel}
+      sidePanelReady={chartLoading || !!chartData}
+    >
+      <PlayerSearchInput
+        apiBase={apiBase}
+        value={player}
+        onChange={setPlayer}
+        placeholder="e.g. Rohit Sharma or RG Sharma"
+        label="Player Name"
+        id="batter-search"
+      />
+    </ToolShell>
   )
 }
