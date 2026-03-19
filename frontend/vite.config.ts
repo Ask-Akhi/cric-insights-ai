@@ -3,8 +3,11 @@ import react from '@vitejs/plugin-react'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _react = (react as any).default ?? react
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [_react()],
+  // Capacitor's Android WebView loads files from the filesystem, so paths must
+  // be relative. For the normal web build (Vite dev + Railway) keep base: '/'.
+  base: mode === 'capacitor' ? './' : '/',
   server: {
     proxy: {
       '/api': {
@@ -24,9 +27,8 @@ export default defineConfig({
           'motion':         ['framer-motion'],
           'charts':         ['recharts'],
           'markdown':       ['react-markdown'],
-          'router':         ['react-router-dom'],
-        },
+          'router':         ['react-router-dom'],        },
       },
     },
   },
-})
+}))

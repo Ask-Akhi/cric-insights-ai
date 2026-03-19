@@ -11,7 +11,14 @@ import Insights from './Insights'
 import PlayerCompare from './PlayerCompare'
 import FantasyXI from './FantasyXI'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? ''
+// On Capacitor (Android WebView) there is no Vite proxy, so we must use the
+// absolute Railway URL. VITE_API_URL is set via .env.capacitor at build time.
+// In the browser (dev + Railway web), the Vite proxy handles /api → 8002.
+const isCapacitor = !!(window as Window & { Capacitor?: unknown }).Capacitor
+const API_BASE =
+  isCapacitor
+    ? (import.meta.env.VITE_API_URL ?? 'https://your-railway-app.up.railway.app')
+    : (import.meta.env.VITE_API_URL ?? '')
 
 const TOOLS = [
   { id: 'ask',      icon: '💬', label: 'Ask AI',          desc: 'Cricket Q&A' },

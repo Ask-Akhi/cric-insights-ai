@@ -35,8 +35,17 @@ frontend/dist/
 frontend/build/
 frontend/.env
 frontend/.env.local
+frontend/.env.capacitor
 .npm/
 *.tsbuildinfo
+
+# ─── Capacitor / Android ──────────────────────────────────────────────────────
+# Commit the android/ source but not generated build artifacts
+frontend/android/app/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+*.apk
+*.aab
 
 # ─── Build artefacts ──────────────────────────────────────────────────────────
 dist/
@@ -60,3 +69,13 @@ logs/
 
 # ─── Docker local override ────────────────────────────────────────────────────
 docker-compose.override.yml
+# ─── Android (Capacitor) ──────────────────────────────────────────────────────
+# Don't track generated build artefacts or binary blobs
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/capacitor-cordova-android-plugins/
+frontend/android/gradle/wrapper/gradle-wrapper.jar
+frontend/android/app/src/main/assets/public/
+frontend/android/app/src/main/res/drawable-*/splash.png
+frontend/android/app/src/main/res/drawable/splash.png
