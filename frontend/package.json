@@ -2,14 +2,15 @@
   "name": "cric-insights-frontend",
   "private": true,
   "version": "0.0.1",
-  "type": "module",  "scripts": {
-    "dev":             "vite",
-    "build":           "vite build",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
     "build:capacitor": "vite build --mode capacitor",
-    "preview":         "vite preview",
-    "cap:sync":        "npm run build:capacitor && npx cap sync android",
-    "cap:open":        "npx cap open android",
-    "cap:build":       "npm run cap:sync && npx cap open android"
+    "preview": "vite preview",
+    "cap:sync": "npm run build:capacitor && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "cap:build": "npm run cap:sync && npx cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
@@ -32,6 +33,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.3",
     "vite": "^5.4.8"
