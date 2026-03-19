@@ -157,28 +157,44 @@ def _openai_response(prompt: str, context: Dict[str, Any]) -> str:
 
 
 def _build_prompt(prompt: str, context: Dict[str, Any]) -> str:
-    today = date.today().strftime("%d %B %Y")   # e.g. "13 March 2026"
+    today = date.today().strftime("%d %B %Y")
 
     system = (
-        f"You are an expert cricket analyst. Today's date is {today}.\n"
+        f"You are an expert cricket analyst AI. Today's date is {today}.\n"
         "IMPORTANT INSTRUCTIONS:\n"
         "1. Use your most up-to-date knowledge — include stats from the current IPL season if it has started.\n"
-        "2. If you are uncertain about very recent match results (last few days), say so clearly and give the most recent data you have.\n"
-        "3. Give COMPLETE answers — never cut off mid-sentence or mid-list. Always finish every bullet point and section.\n"
-        "4. Use bullet points and clear sections. Include all key stats: matches, runs, average, SR, wickets, economy, recent form.\n"
-        "5. End with a clear summary or recommendation.\n\n"
+        "2. If you are uncertain about very recent match results (last few days), say so clearly.\n"
+        "3. Give COMPLETE answers — never cut off mid-sentence or mid-list.\n"
+        "4. Use bullet points and clear sections. Include key stats: matches, runs, average, SR, wickets, economy, recent form.\n"
+        "5. If Cricsheet data is provided below, use it as the PRIMARY source of stats — it is verified ball-by-ball data.\n"
+        "6. If the question is NOT about cricket (e.g. about a non-cricket person, unrelated topic), "
+        "politely clarify you are a cricket specialist and ask if they meant a cricket player or topic.\n"
+        "7. If a person is asked about who is NOT a known cricketer, say so clearly and helpfully.\n"
+        "8. End with a clear summary or recommendation.\n\n"
     )
 
-    # Include all non-empty context values (no truncation on values)
-    ctx_parts = [f"{k}: {v}" for k, v in context.items() if v]
-    ctx_str = "\n".join(ctx_parts) if ctx_parts else ""
+    # Cricsheet RAG data — inject first so LLM treats it as ground truth
+    cricsheet_data = context.get("cricsheet_data", "")
+    detected_players = context.get("detected_players", "")
+
+    # Other context fields (format, grounded etc.) — skip internal keys
+    ctx_parts = [
+        f"{k}: {v}" for k, v in context.items()
+        if v and not k.startswith("_") and k not in ("cricsheet_data", "detected_players")
+    ]
+    ctx_str = "\n".join(ctx_parts)
 
     full = system
     if ctx_str:
         full += f"Context:\n{ctx_str}\n\n"
+    if cricsheet_data:
+        full += (
+            "--- VERIFIED CRICSHEET DATA (ball-by-ball, use as primary stats source) ---\n"
+            f"{cricsheet_data}\n"
+            "--- END CRICSHEET DATA ---\n\n"
+        )
     full += f"Question: {prompt}"
 
-    # Truncate only if truly enormous (12000 chars ~ 3000 tokens)
     if len(full) > MAX_PROMPT_CHARS:
         full = full[:MAX_PROMPT_CHARS] + "\n...[context truncated for length]"
 

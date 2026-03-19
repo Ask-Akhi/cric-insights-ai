@@ -27,8 +27,9 @@ export default defineConfig(({ mode }) => ({
           'motion':         ['framer-motion'],
           'charts':         ['recharts'],
           'markdown':       ['react-markdown'],
-          'router':         ['react-router-dom'],        },
+          'router':         ['react-router-dom'],
+        },
       },
     },
   },
-}))
+})
