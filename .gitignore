@@ -46,6 +46,12 @@ frontend/android/.gradle/
 frontend/android/local.properties
 *.apk
 *.aab
+# ─── Capacitor / iOS ──────────────────────────────────────────────────────────
+frontend/ios/App/App/public/
+frontend/ios/App/Pods/
+frontend/ios/App/App.xcworkspace/xcuserdata/
+frontend/ios/.build/
+*.ipa
 
 # ─── Build artefacts ──────────────────────────────────────────────────────────
 dist/
