@@ -26,10 +26,9 @@ export default defineConfig(({ mode }) => ({
           'react-vendor':   ['react', 'react-dom'],
           'motion':         ['framer-motion'],
           'charts':         ['recharts'],
-          'markdown':       ['react-markdown'],
-          'router':         ['react-router-dom'],
+          'markdown':       ['react-markdown'],          'router':         ['react-router-dom'],
         },
       },
     },
   },
-})
+}))
