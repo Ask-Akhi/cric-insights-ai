@@ -41,93 +41,130 @@ const STATS = [
 ]
 
 export default function App() {
-  const [active, setActive]     = useState('ask')
-  const [grounded, setGrounded] = useState(true)
-  const [format, setFormat]     = useState('T20')
+  const [active, setActive]         = useState('ask')
+  const [grounded, setGrounded]     = useState(true)
+  const [format, setFormat]         = useState('T20')
+  const [menuOpen, setMenuOpen]     = useState(false)
 
   const activeTool = TOOLS.find(t => t.id === active)!
 
+  const selectTool = (id: string) => { setActive(id); setMenuOpen(false) }
+
   return (
     <div className="min-h-screen app-bg relative overflow-x-hidden">
-      {/* Ambient orbs */}
+      {/* Ambient orbs — reduced on mobile for perf */}
       <div className="orb w-[600px] h-[600px] bg-orange-500 top-[-200px] left-[-200px]" style={{ opacity: 0.10 }} />
       <div className="orb w-[500px] h-[500px] bg-indigo-600 bottom-[-150px] right-[-150px]" style={{ opacity: 0.08 }} />
-      <div className="orb w-[300px] h-[300px] bg-amber-400 top-[40%] left-[55%]" style={{ opacity: 0.05 }} />
 
       {/* ── Top Navigation ───────────────────────────────────── */}
-      <header className="relative z-20 border-b border-white/[0.06]" style={{ backdropFilter: 'blur(20px)', background: 'rgba(5,7,15,0.7)' }}>
-        <div className="max-w-screen-xl mx-auto px-6 py-4 flex items-center justify-between">
+      <header className="relative z-30 border-b border-white/[0.06]" style={{ backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', background: 'rgba(5,7,15,0.85)' }}>
+        <div className="max-w-screen-xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
 
           {/* Logo */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <div className="relative">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-xl shadow-lg shadow-orange-500/30 animate-float">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-lg shadow-lg shadow-orange-500/30">
                 🏏
               </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-[#05070f] animate-pulse" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-[#05070f] animate-pulse" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-white tracking-tight leading-none">
+              <h1 className="text-sm font-bold text-white tracking-tight leading-none">
                 Cric Insights <span className="text-orange-400">AI</span>
               </h1>
-              <p className="text-[10px] text-slate-500 mt-0.5 tracking-wide">AI - CricAnalyst</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">AI - CricAnalyst</p>
             </div>
           </div>
 
-          {/* Centre nav */}
+          {/* Centre: format pills (desktop) */}
           <nav className="hidden md:flex items-center gap-1 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
             {['T20', 'ODI', 'Test'].map(f => (
               <button key={f} onClick={() => setFormat(f)} className={`nav-pill ${format === f ? 'active' : ''}`}>{f}</button>
             ))}
           </nav>
 
-          {/* Right controls */}
-          <div className="flex items-center gap-3">
+          {/* Right: live toggle + mobile menu button */}
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setGrounded(g => !g)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-all duration-300 ${
-                grounded
-                  ? 'border-green-500/30 text-green-400 bg-green-500/[0.08]'
-                  : 'border-white/10 text-slate-500 bg-white/[0.03]'
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
+                grounded ? 'border-green-500/30 text-green-400 bg-green-500/[0.08]' : 'border-white/10 text-slate-500 bg-white/[0.03]'
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${grounded ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
-              {grounded ? 'Live' : 'Offline'}
+              <span className="hidden sm:inline">{grounded ? 'Live' : 'Offline'}</span>
+            </button>
+            {/* Mobile hamburger */}
+            <button
+              className="md:hidden w-9 h-9 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-white/10"
+              style={{ background: 'rgba(255,255,255,0.04)' }}
+              onClick={() => setMenuOpen(o => !o)}
+            >
+              <span className={`w-4 h-0.5 bg-slate-300 transition-all duration-200 ${menuOpen ? 'rotate-45 translate-y-2' : ''}`} />
+              <span className={`w-4 h-0.5 bg-slate-300 transition-all duration-200 ${menuOpen ? 'opacity-0' : ''}`} />
+              <span className={`w-4 h-0.5 bg-slate-300 transition-all duration-200 ${menuOpen ? '-rotate-45 -translate-y-2' : ''}`} />
             </button>
           </div>
         </div>
+
+        {/* Mobile format pills */}
+        <div className="md:hidden flex items-center gap-1 px-4 pb-2">
+          {['T20', 'ODI', 'Test'].map(f => (
+            <button key={f} onClick={() => setFormat(f)} className={`nav-pill flex-1 text-center ${format === f ? 'active' : ''}`}>{f}</button>
+          ))}
+        </div>
       </header>
 
-      {/* ── Hero Banner ──────────────────────────────────────── */}
+      {/* ── Mobile slide-down menu ────────────────────────────── */}
+      {menuOpen && (
+        <div className="md:hidden fixed inset-0 z-20 pt-24" style={{ background: 'rgba(5,7,15,0.97)' }}
+          onClick={() => setMenuOpen(false)}>
+          <div className="px-4 py-2 grid grid-cols-2 gap-2 overflow-y-auto max-h-[80vh]" onClick={e => e.stopPropagation()}>
+            {TOOLS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => selectTool(t.id)}
+                className={`tool-card ${active === t.id ? 'active' : ''}`}
+              >
+                <span className="tool-icon">{t.icon}</span>
+                <span className="flex flex-col items-start min-w-0">
+                  <span className={`text-xs font-semibold leading-none ${active === t.id ? 'text-orange-400' : 'text-slate-200'}`}>{t.label}</span>
+                  <span className="text-[10px] text-slate-600 mt-1 leading-none">{t.desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Hero Banner — compact on mobile ──────────────────── */}
       <section className="relative z-10 border-b border-white/[0.05]" style={{ background: 'linear-gradient(180deg, rgba(255,107,53,0.05) 0%, transparent 100%)' }}>
-        <div className="max-w-screen-xl mx-auto px-6 py-12 flex flex-col md:flex-row items-center gap-10">
+        <div className="max-w-screen-xl mx-auto px-4 py-6 md:py-12 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
 
           {/* Editorial headline */}
           <div className="flex-1 animate-slide-up">
-            <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 rounded-full text-xs font-semibold tracking-widest uppercase"
+            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
               style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#ff6b35' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
               IPL 2026 · Live Analysis
             </div>
-            <h2 className="text-4xl md:text-5xl font-bold text-white leading-[1.1] tracking-tight mb-3"
+            <h2 className="text-3xl md:text-5xl font-bold text-white leading-[1.1] tracking-tight mb-2"
               style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
               Cricket Intelligence,{' '}
               <span style={{ background: 'linear-gradient(135deg, #ff6b35, #f5c842)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 Reimagined.
               </span>
             </h2>
-            <p className="text-slate-400 text-base leading-relaxed max-w-md">
+            <p className="text-slate-400 text-sm leading-relaxed max-w-md hidden sm:block">
               AI-powered insights for fantasy teams, match predictions, player analysis, and live IPL data — all in one place.
             </p>
-          </div>
-
-          {/* Stats ticker */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-shrink-0 w-full md:w-auto animate-fade-in">
+          </div>          {/* Stats ticker — 2×2 on mobile, 4×1 on desktop */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 w-full md:w-auto flex-shrink-0 animate-fade-in">
             {STATS.map((s, i) => (
-              <div key={i} className="ticker-card">
-                <div className="text-2xl mb-1">{s.icon}</div>
-                <div className="text-xl font-bold text-white" style={{ fontFamily: '"Playfair Display", serif' }}>{s.value}</div>
-                <div className="text-[10px] text-slate-500 font-medium tracking-wide uppercase mt-0.5">{s.label}</div>
+              <div key={i} className="ticker-card py-3">
+                <div className="text-xl mb-0.5">{s.icon}</div>
+                <div className="text-lg font-bold text-white" style={{ fontFamily: '"Playfair Display", serif' }}>{s.value}</div>
+                <div className="text-[10px] text-slate-500 font-medium tracking-wide uppercase">{s.label}</div>
               </div>
             ))}
           </div>
@@ -135,24 +172,15 @@ export default function App() {
       </section>
 
       {/* ── Main Layout ──────────────────────────────────────── */}
-      <div className="relative z-10 max-w-screen-xl mx-auto px-6 py-8 flex gap-6">
+      <div className="relative z-10 max-w-screen-xl mx-auto px-3 md:px-6 py-5 md:py-8 flex gap-5">
 
-        {/* ── Sidebar ───────────────────────────────────────── */}
-        <aside className="w-52 shrink-0 flex flex-col gap-2 sticky top-6 self-start">
-
-          {/* Format (mobile) */}
-          <div className="flex md:hidden items-center gap-1 p-1 rounded-xl mb-2" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            {['T20', 'ODI', 'Test'].map(f => (
-              <button key={f} onClick={() => setFormat(f)} className={`nav-pill flex-1 text-center ${format === f ? 'active' : ''}`}>{f}</button>
-            ))}
-          </div>
-
+        {/* ── Sidebar — desktop only ────────────────────────── */}
+        <aside className="hidden md:flex w-52 shrink-0 flex-col gap-2 sticky top-6 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.12em] px-1 mb-1">Tools</p>
-
           {TOOLS.map(t => (
             <motion.button
               key={t.id}
-              onClick={() => setActive(t.id)}
+              onClick={() => selectTool(t.id)}
               whileTap={{ scale: 0.97 }}
               className={`tool-card ${active === t.id ? 'active' : ''}`}
             >
@@ -163,7 +191,6 @@ export default function App() {
               </span>
             </motion.button>
           ))}
-
           {/* Status panel */}
           <div className="mt-4 glass p-4 space-y-3">
             <div className="flex items-center gap-2">
@@ -188,11 +215,16 @@ export default function App() {
 
         {/* ── Main Content ──────────────────────────────────── */}
         <main className="flex-1 min-w-0">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-2 mb-6">
-            <span className="text-slate-600 text-xs">Tools</span>
-            <span className="text-slate-700 text-xs">/</span>
-            <span className="text-orange-400 text-xs font-semibold">{activeTool.label}</span>
+          {/* Breadcrumb — mobile shows tool name + hamburger hint */}
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-slate-600 text-xs hidden md:inline">Tools</span>
+            <span className="text-slate-700 text-xs hidden md:inline">/</span>
+            <span className="text-orange-400 text-xs font-semibold">{activeTool.icon} {activeTool.label}</span>
+            <button className="md:hidden ml-auto text-[10px] text-slate-500 border border-white/10 px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.04)' }}
+              onClick={() => setMenuOpen(true)}>
+              ☰ Tools
+            </button>
           </div>
 
           <AnimatePresence mode="wait">

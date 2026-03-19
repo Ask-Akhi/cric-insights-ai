@@ -105,7 +105,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, children, s
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className={showSide ? 'grid grid-cols-1 xl:grid-cols-2 gap-5 items-start' : ''}
+            className={showSide ? 'grid grid-cols-1 lg:grid-cols-2 gap-5 items-start' : ''}
           >
             {/* ── Left: AI text ── */}
             <div className="glass p-6">

@@ -5,13 +5,25 @@
 @tailwind utilities;
 
 @layer base {
-  html { @apply scroll-smooth; }
+  html {
+    @apply scroll-smooth;
+    /* Prevent Safari iOS from zooming on input focus */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     background-color: #05070f;
     color: #e2e8f0;
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Enable momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
+  }
+  /* Prevent font zoom on input focus on iOS Safari */
+  input, textarea, select {
+    font-size: 16px !important;
   }
 }
 
