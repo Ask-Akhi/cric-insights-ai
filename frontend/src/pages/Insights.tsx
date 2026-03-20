@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import MatchForm, { MatchFormData } from './MatchForm'
 import { callInsights, callAsk, InsightsResponse, PlayerInsight } from '../lib/api'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
 // ── Confidence badge ─────────────────────────────────────────────────────────
 function ConfBadge({ conf }: { conf: string }) {
@@ -142,7 +142,7 @@ function FantasyPicks({ data }: { data: InsightsResponse }) {
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
-export default function Insights({ apiBase, format, grounded }: Props) {
+export default function Insights({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [form, setForm] = useState<MatchFormData>({
     format, teamA: '', teamB: '', venue: '', matchDate: '', squadA: [], squadB: [],
   })
@@ -198,7 +198,7 @@ export default function Insights({ apiBase, format, grounded }: Props) {
       .finally(() => setLoading(false))
 
     aiReq
-      .then(r => setAiAnswer(r.answer))
+      .then(r => { setAiAnswer(r.answer); onQuestionAsked?.() })
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }

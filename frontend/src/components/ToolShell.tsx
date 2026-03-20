@@ -8,6 +8,7 @@ interface Props {
   title: string
   subtitle?: string
   onSubmit: () => Promise<{ answer: string; intent?: AskIntent; players?: string[]; mode?: AskMode } | string>
+  onQuestionAsked?: () => void   // called after each successful submission (for usage counter)
   children: React.ReactNode
   sidePanel?: React.ReactNode
   sidePanelReady?: boolean
@@ -75,7 +76,7 @@ function ModeBadge({ mode }: { mode: AskMode }) {
   )
 }
 
-export default function ToolShell({ icon, title, subtitle, onSubmit, children, sidePanel, sidePanelReady }: Props) {
+export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {
   const [loading, setLoading]   = useState(false)
   const [answer, setAnswer]     = useState<string | null>(null)
   const [intent, setIntent]     = useState<AskIntent>('general')
@@ -100,6 +101,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, children, s
         setPlayers(result.players ?? [])
         setMode(result.mode ?? 'graph')
       }
+      onQuestionAsked?.()   // increment free tier counter
     } catch (err: unknown) {
       setError(String(err))
     } finally {

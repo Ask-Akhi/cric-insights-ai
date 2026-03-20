@@ -3,9 +3,9 @@ import ToolShell from '../components/ToolShell'
 import MatchForm, { MatchFormData } from './MatchForm'
 import { callAsk } from '../lib/api'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
-export default function MatchInsights({ apiBase, format, grounded }: Props) {
+export default function MatchInsights({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [form, setForm] = useState<MatchFormData>({
     format, teamA: '', teamB: '', venue: '', matchDate: '', squadA: [], squadB: [],
   })
@@ -34,13 +34,13 @@ export default function MatchInsights({ apiBase, format, grounded }: Props) {
       grounded,
     })
   }
-
   return (
     <ToolShell
       icon="🎯"
       title="Full Match Insights"
       subtitle="Complete pre-match AI report: playing XI, fantasy picks & match prediction"
       onSubmit={handleSubmit}
+      onQuestionAsked={onQuestionAsked}
     >
       <MatchForm apiBase={apiBase} value={form} onChange={setForm} />
     </ToolShell>

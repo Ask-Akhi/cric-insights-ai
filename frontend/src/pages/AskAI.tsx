@@ -3,7 +3,7 @@ import ToolShell from '../components/ToolShell'
 import PlayerCharts from '../components/PlayerCharts'
 import { callAsk, callPlayerStats, PlayerStats } from '../lib/api'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
 // Known player aliases — mirrors backend PLAYER_ALIASES for detection
 const KNOWN_PLAYERS: Record<string, string> = {
@@ -76,7 +76,7 @@ const CHIP_CATEGORIES = [
   },
 ]
 
-export default function AskAI({ apiBase, format, grounded }: Props) {
+export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [question, setQuestion] = useState('')
   const [activeCategory, setActiveCategory] = useState(0)
   const [chartData, setChartData] = useState<PlayerStats | null>(null)
@@ -133,13 +133,13 @@ export default function AskAI({ apiBase, format, grounded }: Props) {
       )}
     </>
   ) : undefined
-
   return (
     <ToolShell
       icon="💬"
       title="Ask the Cricket AI"
       subtitle="Free-form cricket questions — stats, fantasy, predictions, tactics"
       onSubmit={handleSubmit}
+      onQuestionAsked={onQuestionAsked}
       sidePanel={chartsPanel}
       sidePanelReady={(chartLoading || !!chartData) && !!chartPlayer}
     >

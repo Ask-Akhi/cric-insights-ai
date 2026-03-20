@@ -4,9 +4,9 @@ import { callAsk, callH2H, callTeamSearch, H2HData } from '../lib/api'
 import GenericSearchInput from '../components/GenericSearchInput'
 import ReactMarkdown from 'react-markdown'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
-export default function HeadToHead({ apiBase, format, grounded }: Props) {
+export default function HeadToHead({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [teamA, setTeamA]       = useState('')
   const [teamB, setTeamB]       = useState('')
   const [loading, setLoading]   = useState(false)
@@ -32,7 +32,7 @@ export default function HeadToHead({ apiBase, format, grounded }: Props) {
       context: { format, team_a: teamA, team_b: teamB },
       grounded,
     })
-      .then(r => setAiAnswer(r.answer))
+      .then(r => { setAiAnswer(r.answer); onQuestionAsked?.() })
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }

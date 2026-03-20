@@ -4,7 +4,7 @@ import PlayerSearchInput from '../components/PlayerSearchInput'
 import { callAsk, callPlayerStats, PlayerStats } from '../lib/api'
 import ReactMarkdown from 'react-markdown'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
 const ORANGE = '#ff6b35'
 const INDIGO = '#818cf8'
@@ -76,7 +76,7 @@ function Pill({ label, value, color }: { label: string; value: string | number; 
   )
 }
 
-export default function PlayerCompare({ apiBase, format, grounded }: Props) {
+export default function PlayerCompare({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [nameA, setNameA] = useState('')
   const [nameB, setNameB] = useState('')
   const [statsA, setStatsA] = useState<PlayerStats | null>(null)
@@ -98,7 +98,8 @@ export default function PlayerCompare({ apiBase, format, grounded }: Props) {
       callAsk(apiBase, {
         prompt: `Compare ${nameA} vs ${nameB} in ${format} cricket. Cover: batting averages, strike rates, centuries/fifties, bowling records if applicable, head-to-head era comparison, strengths and weaknesses, and who is the better fantasy pick right now. Be concise but analytical.`,
         context: { format, player_a: nameA, player_b: nameB },
-        grounded,      }),
+        grounded,
+      }),
     ])
 
     if (resA.status === 'fulfilled') setStatsA(resA.value)
@@ -107,7 +108,7 @@ export default function PlayerCompare({ apiBase, format, grounded }: Props) {
     if (resB.status === 'fulfilled') setStatsB(resB.value)
     else setError(`Failed to load ${nameB}: ${resB.reason}`)
 
-    if (aiRes.status === 'fulfilled') setAiAnswer(aiRes.value.answer)
+    if (aiRes.status === 'fulfilled') { setAiAnswer(aiRes.value.answer); onQuestionAsked?.() }
 
     setLoading(false)
   }

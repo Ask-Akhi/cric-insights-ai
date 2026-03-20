@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AskAI from './AskAI'
 import BatterStats from './BatterStats'
@@ -10,8 +10,23 @@ import MatchInsights from './MatchInsights'
 import Insights from './Insights'
 import PlayerCompare from './PlayerCompare'
 import FantasyXI from './FantasyXI'
+import ProBanner from '../components/ProBanner'
 
-// On Capacitor (Android WebView) there is no Vite proxy, so we must use the
+// Free tier: 15 AI questions per day tracked in localStorage
+const FREE_LIMIT = 15
+const TODAY_KEY  = () => `cric_q_${new Date().toISOString().slice(0, 10)}`
+
+function useQuestionCounter() {
+  const [used, setUsed] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem(TODAY_KEY()) ?? '0', 10) } catch { return 0 }
+  })
+  const increment = () => {
+    const next = used + 1
+    try { localStorage.setItem(TODAY_KEY(), String(next)) } catch { /* */ }
+    setUsed(next)
+  }
+  return { used, left: Math.max(0, FREE_LIMIT - used), increment, limitHit: used >= FREE_LIMIT }
+}
 // absolute Railway URL. VITE_API_URL is set via .env.capacitor at build time.
 // In the browser (dev + Railway web), the Vite proxy handles /api → 8002.
 const isCapacitor = !!(window as Window & { Capacitor?: unknown }).Capacitor
@@ -45,6 +60,7 @@ export default function App() {
   const [grounded, setGrounded]     = useState(true)
   const [format, setFormat]         = useState('T20')
   const [menuOpen, setMenuOpen]     = useState(false)
+  const { left, increment }         = useQuestionCounter()
 
   const activeTool = TOOLS.find(t => t.id === active)!
 
@@ -81,10 +97,19 @@ export default function App() {
             {['T20', 'ODI', 'Test'].map(f => (
               <button key={f} onClick={() => setFormat(f)} className={`nav-pill ${format === f ? 'active' : ''}`}>{f}</button>
             ))}
-          </nav>
-
-          {/* Right: live toggle + mobile menu button */}
+          </nav>          {/* Right: live toggle + question counter + mobile menu button */}
           <div className="flex items-center gap-2">
+            {/* Questions left pill */}
+            <div
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
+                left <= 3
+                  ? 'border-red-500/30 text-red-400 bg-red-500/[0.08]'
+                  : 'border-white/10 text-slate-400 bg-white/[0.03]'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${left <= 3 ? 'bg-red-400 animate-pulse' : 'bg-slate-600'}`} />
+              {left > 0 ? `${left} free` : '⚡ Upgrade'}
+            </div>
             <button
               onClick={() => setGrounded(g => !g)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
@@ -190,8 +215,7 @@ export default function App() {
                 <span className="text-[10px] text-slate-600 mt-1 leading-none">{t.desc}</span>
               </span>
             </motion.button>
-          ))}
-          {/* Status panel */}
+          ))}          {/* Status panel */}
           <div className="mt-4 glass p-4 space-y-3">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
@@ -210,6 +234,11 @@ export default function App() {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Pro upsell — sidebar widget */}
+          <div className="mt-3">
+            <ProBanner variant="sidebar" questionsLeft={left} />
           </div>
         </aside>
 
@@ -233,17 +262,17 @@ export default function App() {
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            >              {active === 'ask'      && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'batter'   && <BatterStats   apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'bowler'   && <BowlerStats   apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'compare'  && <PlayerCompare apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'fantasy'  && <FantasyXI     apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'insights' && <Insights      apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'venue'    && <VenueStats    apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'h2h'      && <HeadToHead    apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'recent'   && <RecentMatches apiBase={API_BASE} format={format} grounded={grounded} />}
-              {active === 'insight'  && <MatchInsights apiBase={API_BASE} format={format} grounded={grounded} />}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}            >
+              {active === 'ask'      && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'batter'   && <BatterStats   apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'bowler'   && <BowlerStats   apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'compare'  && <PlayerCompare apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'fantasy'  && <FantasyXI     apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'insights' && <Insights      apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'venue'    && <VenueStats    apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'h2h'      && <HeadToHead    apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'recent'   && <RecentMatches apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'insight'  && <MatchInsights apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
             </motion.div>
           </AnimatePresence>
         </main>

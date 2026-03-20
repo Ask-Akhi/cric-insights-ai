@@ -4,7 +4,7 @@ import { callRecentMatches, callAsk, callTeamSearch, MatchRow } from '../lib/api
 import GenericSearchInput from '../components/GenericSearchInput'
 import ReactMarkdown from 'react-markdown'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
 function MatchCard({ m }: { m: MatchRow }) {
   const date = m.start_date ? m.start_date.slice(0, 10) : '—'
@@ -33,7 +33,7 @@ function MatchCard({ m }: { m: MatchRow }) {
   )
 }
 
-export default function RecentMatches({ apiBase, format, grounded }: Props) {
+export default function RecentMatches({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [team, setTeam]         = useState('')
   const [n, setN]               = useState(10)
   const [loading, setLoading]   = useState(false)
@@ -58,7 +58,7 @@ export default function RecentMatches({ apiBase, format, grounded }: Props) {
       context: { format, team, n },
       grounded,
     })
-      .then(r => setAiAnswer(r.answer))
+      .then(r => { setAiAnswer(r.answer); onQuestionAsked?.() })
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }
@@ -121,7 +121,7 @@ export default function RecentMatches({ apiBase, format, grounded }: Props) {
             {/* DATA TAB */}
             {tab === 'data' && (
               <div className="space-y-2">
-                {loading && <div className="glass p-6 space-y-3"><div className="shimmer-line h-4 w-1/2" /><div className="shimmer-line h-3 w-full" /></div>}
+                {loading && <div className="glass p-6 space-y-3"><div className="shimmer-line h-4 w-1/2" /><div className="shimmer-line h-3 w/full" /></div>}
                 {!loading && matches && matches.length > 0 && matches.map(m => <MatchCard key={m.match_id} m={m} />)}
                 {!loading && matches && matches.length === 0 && (
                   <div className="glass p-6 text-sm text-slate-500 text-center">No matches found for this filter.</div>
@@ -132,7 +132,7 @@ export default function RecentMatches({ apiBase, format, grounded }: Props) {
             {/* AI TAB */}
             {tab === 'ai' && (
               <div className="glass p-6">
-                {aiLoading && <div className="space-y-3"><div className="shimmer-line h-4 w-3/4" /><div className="shimmer-line h-4 w-full" /></div>}
+                {aiLoading && <div className="space-y-3"><div className="shimmer-line h-4 w-3/4" /><div className="shimmer-line h-4 w/full" /></div>}
                 {!aiLoading && aiAnswer && (
                   <div className="prose prose-invert prose-sm max-w-none text-slate-300">
                     <ReactMarkdown>{aiAnswer}</ReactMarkdown>

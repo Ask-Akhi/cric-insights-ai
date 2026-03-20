@@ -4,9 +4,9 @@ import PlayerCharts from '../components/PlayerCharts'
 import PlayerSearchInput from '../components/PlayerSearchInput'
 import { callAsk, callPlayerStats, PlayerStats } from '../lib/api'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
-export default function BatterStats({ apiBase, format, grounded }: Props) {
+export default function BatterStats({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [player, setPlayer] = useState('')
   const [chartData, setChartData] = useState<PlayerStats | null>(null)
   const [chartLoading, setChartLoading] = useState(false)
@@ -50,13 +50,13 @@ export default function BatterStats({ apiBase, format, grounded }: Props) {
       )}
     </>
   )
-
   return (
     <ToolShell
       icon="🏏"
       title="Batter Statistics"
       subtitle="Career averages, strike rate, recent form, strengths & fantasy value"
       onSubmit={handleSubmit}
+      onQuestionAsked={onQuestionAsked}
       sidePanel={chartsPanel}
       sidePanelReady={chartLoading || !!chartData}
     >

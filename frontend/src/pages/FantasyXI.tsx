@@ -4,7 +4,7 @@ import SquadBuilder from '../components/SquadBuilder'
 import { callPlayerStats, callAsk, PlayerStats } from '../lib/api'
 import ReactMarkdown from 'react-markdown'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
 // ── Fantasy point model (Dream11-like) ───────────────────────────────────────
 // Batting: 1 pt/run, 4=1 bonus, 6=2 bonus, 50=8 bonus, 100=16 bonus, S/R bonus
@@ -77,7 +77,7 @@ const ROLE_LABEL: Record<string, string> = {
   bat: '🏏 BAT', bowl: '🎳 BOWL', allrounder: '⭐ ALL', unknown: '—',
 }
 
-export default function FantasyXI({ apiBase, format, grounded }: Props) {
+export default function FantasyXI({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [squad, setSquad] = useState<string[]>([])
   const [players, setPlayers] = useState<ScoredPlayer[] | null>(null)
   const [aiAnswer, setAiAnswer] = useState<string | null>(null)
@@ -116,8 +116,7 @@ export default function FantasyXI({ apiBase, format, grounded }: Props) {
         `Then pick the best captain, vice-captain, and a differential pick with reasoning.`,
       context: { format, players: names.join(', ') },
       grounded,
-    })
-      .then(r => setAiAnswer(r.answer))
+    })      .then(r => { setAiAnswer(r.answer); onQuestionAsked?.() })
       .catch(() => setAiAnswer(null))
       .finally(() => setLoading(false))
   }

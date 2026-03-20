@@ -4,7 +4,7 @@ import { callAsk, callVenueStats, callVenueSearch, VenueStatsData } from '../lib
 import GenericSearchInput from '../components/GenericSearchInput'
 import ReactMarkdown from 'react-markdown'
 
-interface Props { apiBase: string; format: string; grounded: boolean }
+interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
 function StatBox({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
@@ -15,7 +15,7 @@ function StatBox({ label, value }: { label: string; value: string | number | nul
   )
 }
 
-export default function VenueStats({ apiBase, format, grounded }: Props) {
+export default function VenueStats({ apiBase, format, grounded, onQuestionAsked }: Props) {
   const [venue, setVenue]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [aiLoading, setAiLoad]  = useState(false)
@@ -40,7 +40,7 @@ export default function VenueStats({ apiBase, format, grounded }: Props) {
       context: { format, venue },
       grounded,
     })
-      .then(r => setAiAnswer(r.answer))
+      .then(r => { setAiAnswer(r.answer); onQuestionAsked?.() })
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }
