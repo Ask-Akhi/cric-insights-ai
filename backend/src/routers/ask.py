@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from ..services.llm_client import get_llm_response_grounded
 from ..services.rag_service import build_rag_context
-from ..services.cricket_graph import run_graph
+# cricket_graph is imported lazily inside the endpoint to avoid blocking startup
 
 router = APIRouter()
 
@@ -45,10 +45,9 @@ async def ask(req: AskRequest):
             raise HTTPException(status_code=503, detail=str(e))
         if not answer or not answer.strip():
             answer = _FALLBACK
-        return AskResponse(answer=answer, intent="general", players=[], mode="grounded")
-
-    # ── LangGraph multi-step pipeline ────────────────────────────────────────
+        return AskResponse(answer=answer, intent="general", players=[], mode="grounded")    # ── LangGraph multi-step pipeline ────────────────────────────────────────
     try:
+        from ..services.cricket_graph import run_graph   # lazy import — avoids blocking startup
         result = await run_graph(req.prompt, ctx)
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))

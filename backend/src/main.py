@@ -6,9 +6,12 @@ from starlette.requests import Request
 from starlette.responses import Response
 import os
 import logging
+import time
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+_START_TIME = time.time()
 
 from .routers import players, matches, insights, ask
 
@@ -54,12 +57,19 @@ app.include_router(ask.router, prefix="/api/ask", tags=["ask"])
 
 @app.get("/api/health")
 def health():
+    uptime = round(time.time() - _START_TIME, 1)
     return {
         "status": "ok",
-        "port": os.environ.get("PORT", "8002"),
+        "uptime_seconds": uptime,
+        "port": os.environ.get("PORT", "8080"),
         "frontend_dist": DIST_DIR,
         "frontend_ok": os.path.isdir(DIST_DIR),
     }
+
+@app.get("/health")
+def health_root():
+    """Alias at /health in case Railway probes without /api prefix."""
+    return {"status": "ok", "uptime_seconds": round(time.time() - _START_TIME, 1)}
 
 if os.path.isdir(DIST_DIR):
     app.mount("/", StaticFiles(directory=DIST_DIR, html=True), name="frontend")

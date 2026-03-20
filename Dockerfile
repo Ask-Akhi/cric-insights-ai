@@ -46,8 +46,8 @@ RUN python -u backend/src/scripts/parse_cricsheet.py --gender both --download \
     && echo "✅ Cricsheet data ready" \
     || echo "⚠️  Cricsheet parse failed — app will start without data"
 
-# Railway injects $PORT at runtime. start-period is generous for data load.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+# Railway injects $PORT at runtime. start-period is generous for LangChain import + data load.
+HEALTHCHECK --interval=15s --timeout=10s --start-period=90s --retries=5 \
     CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
 
-CMD ["sh", "-c", "exec python -m uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["sh", "-c", "exec uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --log-level info"]
