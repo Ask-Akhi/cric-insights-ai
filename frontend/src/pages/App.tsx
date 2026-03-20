@@ -11,6 +11,8 @@ import Insights from './Insights'
 import PlayerCompare from './PlayerCompare'
 import FantasyXI from './FantasyXI'
 import ProBanner from '../components/ProBanner'
+import ProModal from '../components/ProModal'
+import LiveScoreTicker from '../components/LiveScoreTicker'
 
 // Free tier: 15 AI questions per day tracked in localStorage
 const FREE_LIMIT = 15
@@ -60,14 +62,17 @@ export default function App() {
   const [grounded, setGrounded]     = useState(true)
   const [format, setFormat]         = useState('T20')
   const [menuOpen, setMenuOpen]     = useState(false)
+  const [proOpen, setProOpen]       = useState(false)
   const { left, increment }         = useQuestionCounter()
 
   const activeTool = TOOLS.find(t => t.id === active)!
 
   const selectTool = (id: string) => { setActive(id); setMenuOpen(false) }
 
-  return (
-    <div className="min-h-screen app-bg relative overflow-x-hidden">
+  return (    <div className="min-h-screen app-bg relative overflow-x-hidden">
+      {/* Pro upgrade modal */}
+      <ProModal open={proOpen} onClose={() => setProOpen(false)} />
+
       {/* Ambient orbs — reduced on mobile for perf */}
       <div className="orb w-[600px] h-[600px] bg-orange-500 top-[-200px] left-[-200px]" style={{ opacity: 0.10 }} />
       <div className="orb w-[500px] h-[500px] bg-indigo-600 bottom-[-150px] right-[-150px]" style={{ opacity: 0.08 }} />
@@ -98,10 +103,10 @@ export default function App() {
               <button key={f} onClick={() => setFormat(f)} className={`nav-pill ${format === f ? 'active' : ''}`}>{f}</button>
             ))}
           </nav>          {/* Right: live toggle + question counter + mobile menu button */}
-          <div className="flex items-center gap-2">
-            {/* Questions left pill */}
-            <div
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
+          <div className="flex items-center gap-2">            {/* Questions left pill — clickable, opens Pro modal */}
+            <button
+              onClick={() => setProOpen(true)}
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 hover:opacity-80 ${
                 left <= 3
                   ? 'border-red-500/30 text-red-400 bg-red-500/[0.08]'
                   : 'border-white/10 text-slate-400 bg-white/[0.03]'
@@ -109,7 +114,7 @@ export default function App() {
             >
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${left <= 3 ? 'bg-red-400 animate-pulse' : 'bg-slate-600'}`} />
               {left > 0 ? `${left} free` : '⚡ Upgrade'}
-            </div>
+            </button>
             <button
               onClick={() => setGrounded(g => !g)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
@@ -137,8 +142,10 @@ export default function App() {
           {['T20', 'ODI', 'Test'].map(f => (
             <button key={f} onClick={() => setFormat(f)} className={`nav-pill flex-1 text-center ${format === f ? 'active' : ''}`}>{f}</button>
           ))}
-        </div>
-      </header>
+        </div>      </header>
+
+      {/* ── Live Score Ticker ─────────────────────────────────── */}
+      <LiveScoreTicker apiBase={API_BASE} format={format} />
 
       {/* ── Mobile slide-down menu ────────────────────────────── */}
       {menuOpen && (

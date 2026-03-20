@@ -41,37 +41,46 @@ const CHIP_CATEGORIES = [
   {
     label: '🏏 Batting',
     chips: [
-      "Who are the top 5 batters in {format} cricket right now?",
-      "What is Virat Kohli's average in {format} matches in the last 2 years?",
-      "Which batter has the best strike rate in T20 death overs (16-20)?",
-      "Compare Rohit Sharma and Joe Root across all formats.",
+      "Virat Kohli's {format} average in the last 2 years?",
+      "Top 5 {format} batters by strike rate right now",
+      "Rohit Sharma vs Babar Azam in {format} — who is better?",
+      "Which batter has the best death-over strike rate (16-20) in {format}?",
     ],
   },
   {
     label: '🎳 Bowling',
     chips: [
-      "Who are the most economical bowlers in {format} powerplay overs?",
-      "Which spinners are best on turning tracks in {format}?",
-      "Best bowling attacks in {format} cricket currently?",
-      "Who takes the most wickets in the death overs in {format}?",
+      "Jasprit Bumrah's {format} economy and wickets this season",
+      "Best spinners on turning tracks in {format} — ranked",
+      "Which pacer has the best powerplay economy in {format}?",
+      "Rashid Khan vs Wanindu Hasaranga — compare in {format}",
     ],
   },
   {
     label: '🏆 Fantasy',
     chips: [
-      "Give me a fantasy XI for India vs Australia in {format} at the MCG.",
-      "Which differential picks should I consider for my fantasy team today?",
-      "Best captain choices for India's next {format} match?",
-      "Suggest a balanced fantasy team for a pitch favoring spinners.",
+      "Best captain picks for MI vs CSK in {format}",
+      "Top differential picks for {format} fantasy this week",
+      "Safe no-brainer picks for {format} fantasy — low risk",
+      "Fantasy XI for India vs Australia at Wankhede in {format}",
     ],
   },
   {
-    label: '🏟️ Venue & Tactics',
+    label: '🔮 Predict',
     chips: [
-      "What is the average score at Wankhede Stadium in {format} cricket?",
-      "Which teams perform best chasing at Lord's in Tests?",
-      "What tactics work best at Eden Gardens in {format}?",
+      "Who will win IPL 2026 — predict with confidence %",
+      "India vs Australia {format} — who wins and why?",
+      "Which team has the best chance of winning the {format} World Cup?",
+      "Predict the top run-scorer in IPL 2026",
+    ],
+  },
+  {
+    label: '🏟️ Venue',
+    chips: [
+      "Average score at Wankhede in {format} — pitch report",
+      "Best bowling venues for pacers in {format} cricket",
       "Does the toss matter at Chepauk in Test matches?",
+      "Eden Gardens {format} stats — batting or bowling pitch?",
     ],
   },
 ]

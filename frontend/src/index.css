@@ -266,3 +266,7 @@
 .animate-fade-in    { animation: fadeIn 0.6s ease forwards; }
 .animate-slide-up   { animation: slideUp 0.5s cubic-bezier(0.16,1,0.3,1) forwards; }
 .animate-scale-in   { animation: scaleIn 0.3s cubic-bezier(0.16,1,0.3,1) forwards; }
+
+/* Hide scrollbar but keep scrollability */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }

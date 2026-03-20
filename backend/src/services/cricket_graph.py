@@ -44,14 +44,12 @@ if _LANGGRAPH_AVAILABLE:
         final_answer: str
         is_cricket: bool
         mode: str
-
-
     def _llm(temperature: float = 0.3) -> ChatGoogleGenerativeAI:
         return ChatGoogleGenerativeAI(
             model=LLM_MODEL,
             google_api_key=GEMINI_API_KEY,
             temperature=temperature,
-            max_output_tokens=4096,
+            max_output_tokens=512,
         )
 
 
@@ -283,52 +281,26 @@ RULES:
         return {"sub_answers": state.get("sub_answers", []) + [answer]}
 
 
-    # ── Node 6: Predict ───────────────────────────────────────────────────────
-    _PREDICT_SYSTEM = f"""You are a cricket prediction analyst who uses data science and domain expertise.
-Today is {TODAY}.
+    # ── Node 6: Predict ───────────────────────────────────────────────────────    _PREDICT_SYSTEM = f"""You are a cricket prediction analyst. Today is {TODAY}.
 
-YOUR FRAMEWORK (always apply all 4 factors):
-1. Recent Form (last 5 matches) — 35% weight
-2. Head-to-Head History — 25% weight
-3. Venue & Pitch Conditions — 25% weight
-4. Squad Strength & Key Players — 15% weight
+OUTPUT FORMAT (strict — no deviation):
+## 🔮 Prediction: [Subject]
 
-OUTPUT FORMAT:
-## 🔮 Match Prediction: [Team A] vs [Team B]
+**Winner/Pick: [Name] — Confidence: XX%**
 
-### Factor Analysis
-| Factor | [Team A] | [Team B] | Edge |
-|--------|---------|---------|------|
-| Recent Form | X/5 wins | X/5 wins | 🟢 [Name] |
-| H2H Record | X wins | X wins | 🟢 [Name] |
-| Venue Advantage | [details] | [details] | 🟢 [Name] |
-| Squad Depth | [assessment] | [assessment] | 🟢 [Name] |
+**3 Key Reasons:**
+1. [Stat-backed reason]
+2. [Stat-backed reason]
+3. [Stat-backed reason]
 
-### Key Player Matchups to Watch
-- **[Batter] vs [Bowler]:** [Why this matchup is decisive]
-- **[Player]:** [Expected impact]
-
-### 🎯 Prediction
-**Winner: [Team/Player] — Confidence: XX%**
-
-> Reasoning: [3-4 sentences explaining the prediction with specific stats]
-
-### 🔑 3 Key Deciding Factors
-1. [Factor + why it matters]
-2. [Factor + why it matters]
-3. [Factor + why it matters]
-
-### ⚠️ Risk Factors (could flip the result)
-- [Risk 1]
-- [Risk 2]
+**Risk:** [One sentence on what could change the outcome]
 
 RULES:
-- Always give a confidence % (e.g. 68%) — never say "unpredictable".
-- If you're genuinely uncertain, give 55% and explain why.
-- Be bold with predictions — wishy-washy answers are useless.
-"""
-
-    def predict_node(state: CricketState) -> dict:
+- Max 120 words total. Be decisive.
+- Always give a concrete winner and confidence % — never say "too early to tell".
+- No lengthy factor tables. Just the verdict + reasons.
+- If it's a tournament prediction (e.g. IPL winner), pick the most likely team based on squad strength and history.
+"""    def predict_node(state: CricketState) -> dict:
         cricsheet = state["rag_context"].get("cricsheet_data", "")
         try:
             resp = _llm(0.4).invoke([
@@ -336,32 +308,24 @@ RULES:
                 HumanMessage(content=(
                     f"Prediction question: {state['prompt']}\n\n"
                     f"--- CRICSHEET HISTORICAL DATA ---\n{cricsheet if cricsheet else 'No specific data — use training knowledge'}\n--- END ---\n\n"
-                    "Provide a complete prediction analysis with confidence percentage."
+                    "Give a direct prediction under 120 words. Pick a winner with confidence %."
                 )),
             ])
             answer = resp.content
         except Exception as e:
             answer = f"🔮 Prediction error: {e}"
         return {"sub_answers": state.get("sub_answers", []) + [answer]}
-
-
     # ── Node 7: General ───────────────────────────────────────────────────────
-    _GENERAL_SYSTEM = f"""You are an expert cricket analyst and commentator — knowledgeable, engaging, and precise.
-Today is {TODAY}.
-
-YOUR STYLE:
-- Authoritative but conversational — like a top cricket journalist writing for ESPNcricinfo.
-- Always back opinions with data or reasoning.
-- Structure answers clearly with headers for complex topics.
-- For short factual questions, answer concisely (2-4 sentences is fine).
-- For analytical questions, use headers and bullet points.
+    _GENERAL_SYSTEM = f"""You are a sharp cricket analyst. Today is {TODAY}.
 
 RULES:
-- If Cricsheet data is provided below, treat it as GROUND TRUTH — cite it explicitly.
-- If the question is about a non-cricket topic, politely redirect (you're a cricket specialist).
-- Never make up specific match scores or player stats you're not sure about — say "approximately" or "in recent seasons".
-- Always end with an actionable insight or recommendation when relevant.
-- Today's IPL 2026 season context: factor in current form when discussing IPL players.
+- Answer in MAX 150 words. Be direct and precise — no padding or filler.
+- Lead with the answer immediately. No long intros.
+- Use bullet points only if listing 3+ items. Otherwise plain sentences.
+- Back every claim with a stat or fact.
+- If Cricsheet data is provided, cite it as ground truth.
+- For prediction questions: give a direct winner pick + confidence % + 2 key reasons. That's it.
+- Never say "it's hard to predict" or "many factors" — just give your best assessment.
 """
 
     def general_node(state: CricketState) -> dict:
@@ -372,7 +336,7 @@ RULES:
                 HumanMessage(content=(
                     f"Question: {state['prompt']}\n\n"
                     + (f"--- CRICSHEET DATA ---\n{cricsheet}\n--- END ---\n\n" if cricsheet else "")
-                    + "Provide a complete, well-structured answer."
+                    + "Answer in under 150 words. Be direct."
                 )),
             ])
             answer = resp.content
@@ -398,17 +362,15 @@ RULES:
             "💡 **Try asking:** *\"Virat Kohli T20 stats\"*, *\"Compare Bumrah vs Shami\"*, or *\"Fantasy XI for MI vs CSK\"*"
         )
         return {"final_answer": answer, "sub_answers": []}
-
-
     # ── Node 9: Synthesizer ───────────────────────────────────────────────────
-    _SYNTH_SYSTEM = """You are a cricket content editor. Merge the analysis sections below into ONE coherent response.
+    _SYNTH_SYSTEM = """You are a cricket content editor. Merge the sections below into ONE concise response.
 
 RULES:
-- Remove ALL repetition — if the same stat appears twice, keep it once.
-- Keep ALL unique data points, recommendations, and verdicts.
-- Maintain markdown formatting — use headers to organise.
-- The merged response must flow naturally, not read like two pasted sections.
-- Maximum length: 600 words. Be ruthlessly concise while keeping substance.
+- Maximum 200 words. Cut ruthlessly — keep only key stats and the verdict.
+- Remove ALL repetition and generic filler phrases.
+- Keep markdown formatting (headers, bold key numbers).
+- The response must read naturally, not like pasted sections.
+- Preserve the core verdict/recommendation — that is the most important part.
 """
 
     def synthesizer_node(state: CricketState) -> dict:
