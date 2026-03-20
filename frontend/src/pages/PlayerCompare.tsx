@@ -98,8 +98,7 @@ export default function PlayerCompare({ apiBase, format, grounded }: Props) {
       callAsk(apiBase, {
         prompt: `Compare ${nameA} vs ${nameB} in ${format} cricket. Cover: batting averages, strike rates, centuries/fifties, bowling records if applicable, head-to-head era comparison, strengths and weaknesses, and who is the better fantasy pick right now. Be concise but analytical.`,
         context: { format, player_a: nameA, player_b: nameB },
-        grounded,
-      }),
+        grounded,      }),
     ])
 
     if (resA.status === 'fulfilled') setStatsA(resA.value)
@@ -108,7 +107,7 @@ export default function PlayerCompare({ apiBase, format, grounded }: Props) {
     if (resB.status === 'fulfilled') setStatsB(resB.value)
     else setError(`Failed to load ${nameB}: ${resB.reason}`)
 
-    if (aiRes.status === 'fulfilled') setAiAnswer(aiRes.value)
+    if (aiRes.status === 'fulfilled') setAiAnswer(aiRes.value.answer)
 
     setLoading(false)
   }

@@ -1,21 +1,37 @@
+export type AskIntent = 'stats' | 'compare' | 'fantasy' | 'predict' | 'general'
+export type AskMode  = 'graph' | 'direct' | 'fallback' | 'grounded'
+
 export interface AskPayload {
   prompt: string
   context?: Record<string, string | number>
   grounded?: boolean
+  use_graph?: boolean
 }
 
-export async function callAsk(apiBase: string, payload: AskPayload): Promise<string> {
+export interface AskResult {
+  answer: string
+  intent: AskIntent
+  players: string[]
+  mode: AskMode
+}
+
+export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {
   const res = await fetch(`${apiBase}/api/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ use_graph: true, ...payload }),
   })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`API ${res.status}: ${text}`)
   }
   const json = await res.json()
-  return json.answer ?? JSON.stringify(json)
+  return {
+    answer:  json.answer  ?? '',
+    intent:  json.intent  ?? 'general',
+    players: json.players ?? [],
+    mode:    json.mode    ?? 'graph',
+  }
 }
 
 export interface PlayerStats {

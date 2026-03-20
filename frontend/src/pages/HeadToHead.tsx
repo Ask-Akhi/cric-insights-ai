@@ -32,7 +32,7 @@ export default function HeadToHead({ apiBase, format, grounded }: Props) {
       context: { format, team_a: teamA, team_b: teamB },
       grounded,
     })
-      .then(setAiAnswer)
+      .then(r => setAiAnswer(r.answer))
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }

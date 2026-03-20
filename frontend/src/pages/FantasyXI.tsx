@@ -117,7 +117,7 @@ export default function FantasyXI({ apiBase, format, grounded }: Props) {
       context: { format, players: names.join(', ') },
       grounded,
     })
-      .then(setAiAnswer)
+      .then(r => setAiAnswer(r.answer))
       .catch(() => setAiAnswer(null))
       .finally(() => setLoading(false))
   }

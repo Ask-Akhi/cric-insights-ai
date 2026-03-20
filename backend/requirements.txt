@@ -8,9 +8,16 @@ httpx>=0.28.1
 polars>=1.14.0
 pyarrow==17.0.0
 
-# LLM
+# LLM — direct clients
 google-genai>=1.66.0
 openai>=1.40.0
+
+# LangChain + LangGraph — multi-step agent pipeline
+langchain>=0.2.0
+langchain-google-genai>=1.0.7
+langchain-openai>=0.1.0
+langchain-core>=0.2.0
+langgraph>=0.1.0
 
 # Config
 python-dotenv==1.0.0

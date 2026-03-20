@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Cricket Insights AI</string>
+    <string name="title_activity_main">Cricket Insights AI</string>
+    <string name="package_name">com.cricketinsights.app</string>
+    <string name="custom_url_scheme">com.cricketinsights.app</string>
+</resources>

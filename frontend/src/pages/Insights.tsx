@@ -198,7 +198,7 @@ export default function Insights({ apiBase, format, grounded }: Props) {
       .finally(() => setLoading(false))
 
     aiReq
-      .then(setAiAnswer)
+      .then(r => setAiAnswer(r.answer))
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }

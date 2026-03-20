@@ -40,7 +40,7 @@ export default function VenueStats({ apiBase, format, grounded }: Props) {
       context: { format, venue },
       grounded,
     })
-      .then(setAiAnswer)
+      .then(r => setAiAnswer(r.answer))
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }

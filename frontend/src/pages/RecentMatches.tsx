@@ -58,7 +58,7 @@ export default function RecentMatches({ apiBase, format, grounded }: Props) {
       context: { format, team, n },
       grounded,
     })
-      .then(setAiAnswer)
+      .then(r => setAiAnswer(r.answer))
       .catch(() => setAiAnswer(null))
       .finally(() => setAiLoad(false))
   }
