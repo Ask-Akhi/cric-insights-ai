@@ -230,39 +230,77 @@ def recent_matches(
     format: Optional[str] = Query(None),
     limit: int = Query(10, le=50),
 ):
-    """Return the most recent matches from Cricsheet data, filtered by format."""
+    """
+    Return the most recent matches from the Cricsheet static dataset.
+    NOTE: This is a downloaded snapshot — not live data.
+    'format' tab values (T20/ODI/Test) are mapped to all matching Cricsheet format codes.
+    """
     provider = _get_provider()
-    # get_matches returns a dict-of-lists; convert to list of dicts
-    raw = provider.get_matches(formats=[format] if format else None)
+
+    # Map UI tab labels → all matching Cricsheet format codes
+    FORMAT_MAP: dict[str, list[str]] = {
+        "T20":  ["T20", "IT20", "IPL", "BBL", "CPL", "PSL", "BPL", "LPL",
+                 "SA20", "SAT", "WPL", "MLC", "ILT", "SSM", "NTB", "WBB",
+                 "MLT", "NPL", "WCL", "WTB", "RLC", "MCL", "CCH", "CTC",
+                 "MDM", "FRB", "SSM", "HND", "RHF", "PKS", "IPO", "IPT",
+                 "MCC", "MCT", "WOD", "CEC", "SMA"],
+        "ODI":  ["ODI", "ODC", "ODM", "WCL"],
+        "Test": ["Test", "WTC", "WTB"],
+    }
+
+    fmt_codes = FORMAT_MAP.get(format or "", [format] if format else None)  # type: ignore[arg-type]
+    raw = provider.get_matches(formats=fmt_codes)
     if not raw:
-        return {"matches": [], "count": 0}
+        return {"matches": [], "count": 0, "data_note": "No matches found for this format in the Cricsheet dataset."}
 
-    import polars as pl
     df = pl.DataFrame(raw)
-
-    # Only keep matches with a known date and sort newest first
     df = (
         df.filter(pl.col("start_date").is_not_null())
         .sort("start_date", descending=True)
         .head(limit)
     )
 
+    # Derive team1/team2 from ball-by-ball batting_team data for the match
+    lf_balls = provider.datasets.get("balls")
+    match_teams: dict = {}
+    if lf_balls is not None and not df.is_empty():
+        ids = df.get_column("match_id").to_list()
+        teams_df = (
+            lf_balls
+            .filter(pl.col("match_id").is_in(ids))
+            .select(["match_id", "batting_team", "innings"])
+            .unique()
+            .collect()
+        )
+        for mid in ids:
+            rows = teams_df.filter(pl.col("match_id") == mid).sort("innings")
+            team_list = rows.get_column("batting_team").unique().to_list()
+            match_teams[mid] = team_list
+
+    latest_date = df.get_column("start_date").max() if not df.is_empty() else "unknown"
+
     results = []
     for row in df.iter_rows(named=True):
+        mid = row.get("match_id")
+        teams = match_teams.get(mid, [])
         results.append({
-            "match_id": row.get("match_id"),
-            "team1": row.get("toss_winner") or "",
-            "team2": "",          # Cricsheet doesn't store "team2" separately at match level
+            "match_id": mid,
+            "team1": teams[0] if len(teams) > 0 else (row.get("toss_winner") or ""),
+            "team2": teams[1] if len(teams) > 1 else "",
             "winner": row.get("winner") or "",
             "venue": row.get("venue") or "",
             "date": str(row.get("start_date") or ""),
-            "format": row.get("format") or format or "T20",
+            "format": row.get("format") or format or "",
             "competition": row.get("competition") or "",
             "status": "recent",
-            "score": "",          # ball-by-ball score building is expensive; left blank for now
         })
 
-    return {"matches": results, "count": len(results)}
+    return {
+        "matches": results,
+        "count": len(results),
+        "data_note": f"Cricsheet snapshot — latest match: {latest_date}. Not live data.",
+        "latest_date": str(latest_date),
+    }
 
 
 @router.post("/")

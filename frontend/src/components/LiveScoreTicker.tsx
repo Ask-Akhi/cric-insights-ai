@@ -16,6 +16,13 @@ interface Match {
   status?: string
 }
 
+interface ApiResponse {
+  matches: Match[]
+  count: number
+  latest_date?: string
+  data_note?: string
+}
+
 interface Props {
   apiBase: string
   format: string
@@ -23,6 +30,7 @@ interface Props {
 
 export default function LiveScoreTicker({ apiBase, format }: Props) {
   const [matches, setMatches] = useState<Match[]>([])
+  const [latestDate, setLatestDate] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
@@ -32,9 +40,9 @@ export default function LiveScoreTicker({ apiBase, format }: Props) {
     const url = `${apiBase}/api/matches/recent?format=${encodeURIComponent(format)}&limit=12`
     fetch(url)
       .then(r => r.json())
-      .then(data => {
-        const list: Match[] = Array.isArray(data?.matches) ? data.matches : []
-        setMatches(list)
+      .then((data: ApiResponse) => {
+        setMatches(Array.isArray(data?.matches) ? data.matches : [])
+        setLatestDate(data?.latest_date ?? '')
         setLoading(false)
       })
       .catch(() => {
@@ -55,14 +63,18 @@ export default function LiveScoreTicker({ apiBase, format }: Props) {
 
   return (
     <div className="border-b border-white/[0.05]" style={{ background: 'rgba(255,255,255,0.015)' }}>
-      <div className="max-w-screen-xl mx-auto px-4 py-2 flex items-center gap-3 overflow-hidden">
-        {/* Label */}
+      <div className="max-w-screen-xl mx-auto px-4 py-2 flex items-center gap-3 overflow-hidden">        {/* Label */}
         <div className="flex-shrink-0 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-            Recent
+          <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            Cricsheet
           </span>
           <span className="text-[10px] text-orange-400 font-semibold ml-1">{format}</span>
+          {latestDate && (
+            <span className="text-[9px] text-slate-700 ml-1 hidden sm:inline">
+              · up to {latestDate.slice(0, 7)}
+            </span>
+          )}
         </div>
         <div className="w-px h-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }} />
 
@@ -83,32 +95,40 @@ export default function LiveScoreTicker({ apiBase, format }: Props) {
 
           {isEmpty && (
             <span className="text-[10px] text-slate-600">No recent {format} matches in dataset</span>
-          )}
-
-          {!loading && !error && matches.length > 0 && (
+          )}          {!loading && !error && matches.length > 0 && (
             <div className="flex gap-3 pb-0.5" style={{ minWidth: 'max-content' }}>
               {matches.map((m, i) => {
                 const winner = m.winner || ''
-                const team1 = m.team1 || '?'
-                // Cricsheet stores winner; use it to infer teams where possible
-                const isT1Winner = winner && winner === team1
+                const t1 = m.team1 || '?'
+                const t2 = m.team2 || ''
+                const fmt = m.format || ''
                 return (
                   <div
                     key={m.match_id ?? i}
                     className="flex items-center gap-2 px-3 py-1 rounded-lg flex-shrink-0 text-[11px]"
                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-600 flex-shrink-0" />
 
-                    {/* Teams */}
-                    <span className={`font-semibold ${isT1Winner ? 'text-green-400' : 'text-slate-300'}`}>
-                      {team1}
+                    {/* Team 1 */}
+                    <span className={`font-semibold ${winner === t1 ? 'text-green-400' : 'text-slate-300'}`}>
+                      {t1}
                     </span>
 
-                    {/* Winner badge */}
+                    {/* Team 2 */}
+                    {t2 && (
+                      <>
+                        <span className="text-slate-600">vs</span>
+                        <span className={`font-semibold ${winner === t2 ? 'text-green-400' : 'text-slate-300'}`}>
+                          {t2}
+                        </span>
+                      </>
+                    )}
+
+                    {/* Winner */}
                     {winner && (
                       <>
-                        <span className="text-slate-600 text-[9px]">·</span>
+                        <span className="text-slate-700 text-[9px]">·</span>
                         <span className="text-green-400 text-[10px] font-medium">{winner} won</span>
                       </>
                     )}
@@ -117,7 +137,7 @@ export default function LiveScoreTicker({ apiBase, format }: Props) {
                     {m.venue && (
                       <>
                         <span className="text-slate-700 text-[9px]">·</span>
-                        <span className="text-slate-600 text-[10px] max-w-[120px] truncate">{m.venue}</span>
+                        <span className="text-slate-600 text-[10px] max-w-[100px] truncate">{m.venue}</span>
                       </>
                     )}
 
@@ -127,10 +147,10 @@ export default function LiveScoreTicker({ apiBase, format }: Props) {
                     )}
 
                     {/* Format badge */}
-                    {m.competition && (
+                    {fmt && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded font-bold text-orange-400"
                         style={{ background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.15)' }}>
-                        {m.competition}
+                        {fmt}
                       </span>
                     )}
                   </div>
