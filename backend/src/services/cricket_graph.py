@@ -74,13 +74,9 @@ def rag_enrichment_node(state: CricketState) -> dict:
 
 # -- Node 3: Stats -------------------------------------------------------------
 _STATS_SYSTEM = f"""You are a cricket statistician. Today is {TODAY}.
-RULES: Lead with Cricsheet numbers. Max 200 words.
-Format:
-## [Player] -- Statistical Profile
-**Key Numbers:** [inline stats]
-**Recent Form:** [last 5 if available]
-**Verdict:** [1-2 sentences what the numbers mean]
-"""
+Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
+State the key numbers in ONE sentence, then give a one-sentence verdict on what they mean.
+Use Cricsheet data when provided. Do not list every tournament separately."""
 
 
 def stats_node(state: CricketState) -> dict:
@@ -91,7 +87,7 @@ def stats_node(state: CricketState) -> dict:
             HumanMessage(content=(
                 f"Stats question: {state['prompt']}\n\n"
                 f"--- CRICSHEET DATA ---\n{cricsheet or 'No data found.'}\n--- END ---\n\n"
-                "Statistical analysis in under 200 words."
+                "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
@@ -101,9 +97,9 @@ def stats_node(state: CricketState) -> dict:
 
 
 # -- Node 4: Compare -----------------------------------------------------------
-_COMPARE_SYSTEM = f"""You are a cricket analyst specialising in player comparisons. Today is {TODAY}.
-Max 200 words. Use a markdown table then a Verdict sentence.
-"""
+_COMPARE_SYSTEM = f"""You are a cricket analyst. Today is {TODAY}.
+Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
+Compare the two players in 2-3 sentences covering the most important stat difference, then give a direct one-sentence verdict on who is better for the context asked."""
 
 
 def compare_node(state: CricketState) -> dict:
@@ -114,7 +110,7 @@ def compare_node(state: CricketState) -> dict:
             HumanMessage(content=(
                 f"Comparison: {state['prompt']}\n\n"
                 f"--- CRICSHEET DATA ---\n{cricsheet or 'No data'}\n--- END ---\n\n"
-                "Head-to-head comparison under 200 words."
+                "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
@@ -125,8 +121,8 @@ def compare_node(state: CricketState) -> dict:
 
 # -- Node 5: Fantasy -----------------------------------------------------------
 _FANTASY_SYSTEM = f"""You are a fantasy cricket expert. Today is {TODAY}.
-Max 150 words. Format: Captain, Vice-Captain, Core Picks, Differential, Avoid.
-"""
+Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
+State Captain, Vice-Captain, and 3-4 core picks in one or two sentences. Add one differential pick with a brief reason. Keep it punchy."""
 
 
 def fantasy_node(state: CricketState) -> dict:
@@ -137,7 +133,7 @@ def fantasy_node(state: CricketState) -> dict:
             HumanMessage(content=(
                 f"Fantasy question: {state['prompt']}\n\n"
                 f"--- CRICSHEET DATA ---\n{cricsheet or 'No data'}\n--- END ---\n\n"
-                "Fantasy picks under 150 words."
+                "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
@@ -148,13 +144,8 @@ def fantasy_node(state: CricketState) -> dict:
 
 # -- Node 6: Predict -----------------------------------------------------------
 _PREDICT_SYSTEM = f"""You are a cricket prediction analyst. Today is {TODAY}.
-Max 120 words. Format:
-## Prediction: [Subject]
-**Winner: [Name] -- Confidence: XX%**
-**3 Key Reasons:** 1. ... 2. ... 3. ...
-**Risk:** [one sentence]
-Always give a concrete winner -- never say "too early to tell".
-"""
+Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
+State your predicted winner and confidence % in the first sentence. Give exactly 2 reasons in plain sentences. End with one risk factor. Always pick a winner — never say "too early to tell"."""
 
 
 def predict_node(state: CricketState) -> dict:
@@ -165,7 +156,7 @@ def predict_node(state: CricketState) -> dict:
             HumanMessage(content=(
                 f"Prediction: {state['prompt']}\n\n"
                 f"--- CRICSHEET DATA ---\n{cricsheet or 'No data'}\n--- END ---\n\n"
-                "Direct prediction under 120 words with confidence %."
+                "Plain English, max 80 words, no tables or lists. Pick a winner with confidence %."
             )),
         ])
         answer = resp.content
@@ -176,9 +167,8 @@ def predict_node(state: CricketState) -> dict:
 
 # -- Node 7: General -----------------------------------------------------------
 _GENERAL_SYSTEM = f"""You are a sharp cricket analyst. Today is {TODAY}.
-Max 150 words. Lead with the answer immediately. Back every claim with a stat.
-Never say "it's hard to predict" -- give your best direct assessment.
-"""
+Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no markdown headers.
+Start with the direct answer in the first sentence. Back it with one key stat. Give a brief context sentence if needed. Nothing else."""
 
 
 def general_node(state: CricketState) -> dict:
@@ -189,7 +179,7 @@ def general_node(state: CricketState) -> dict:
             HumanMessage(content=(
                 f"Question: {state['prompt']}\n\n"
                 + (f"--- CRICSHEET DATA ---\n{cricsheet}\n--- END ---\n\n" if cricsheet else "")
-                + "Answer in under 150 words."
+                + "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
@@ -212,7 +202,8 @@ def non_cricket_node(state: CricketState) -> dict:
 
 # -- Node 9: Synthesizer -------------------------------------------------------
 _SYNTH_SYSTEM = """You are a cricket content editor. Merge the sections into ONE response.
-Max 200 words. Remove duplicates. Keep all stats, verdicts, recommendations. Clean markdown.
+Plain conversational English only. Max 80 words. No tables, no bullet lists, no markdown headers.
+Keep only the most important stats and the final verdict. Remove all duplicates.
 """
 
 
@@ -325,7 +316,7 @@ async def run_graph(prompt: str, context: Dict[str, Any] | None = None) -> Dict[
             HumanMessage(content=(
                 f"Question: {prompt}\n\n"
                 + (f"--- CRICSHEET DATA ---\n{cricsheet}\n--- END ---\n\n" if cricsheet else "")
-                + "Answer in under 150 words."
+                + "Plain English, max 80 words, no tables or lists."
             )),
         ])
         return {
