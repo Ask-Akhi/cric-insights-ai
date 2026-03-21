@@ -225,6 +225,46 @@ def head_to_head(
     }
 
 
+@router.get("/recent")
+def recent_matches(
+    format: Optional[str] = Query(None),
+    limit: int = Query(10, le=50),
+):
+    """Return the most recent matches from Cricsheet data, filtered by format."""
+    provider = _get_provider()
+    # get_matches returns a dict-of-lists; convert to list of dicts
+    raw = provider.get_matches(formats=[format] if format else None)
+    if not raw:
+        return {"matches": [], "count": 0}
+
+    import polars as pl
+    df = pl.DataFrame(raw)
+
+    # Only keep matches with a known date and sort newest first
+    df = (
+        df.filter(pl.col("start_date").is_not_null())
+        .sort("start_date", descending=True)
+        .head(limit)
+    )
+
+    results = []
+    for row in df.iter_rows(named=True):
+        results.append({
+            "match_id": row.get("match_id"),
+            "team1": row.get("toss_winner") or "",
+            "team2": "",          # Cricsheet doesn't store "team2" separately at match level
+            "winner": row.get("winner") or "",
+            "venue": row.get("venue") or "",
+            "date": str(row.get("start_date") or ""),
+            "format": row.get("format") or format or "T20",
+            "competition": row.get("competition") or "",
+            "status": "recent",
+            "score": "",          # ball-by-ball score building is expensive; left blank for now
+        })
+
+    return {"matches": results, "count": len(results)}
+
+
 @router.post("/")
 def create_match(match: MatchInput):
     return {"received": match.model_dump()}

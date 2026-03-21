@@ -1,21 +1,19 @@
 /**
- * LiveScoreTicker — horizontal scrolling live/recent match scores.
- * Uses Cricsheet recent matches from the backend.
- * Falls back to placeholder cards if API is unavailable.
+ * LiveScoreTicker — horizontal scrolling recent match results.
+ * Fetches real Cricsheet data from /api/matches/recent, filtered by format.
  */
 import { useEffect, useState } from 'react'
 
 interface Match {
   match_id?: string
-  teams?: string[]
   team1?: string
   team2?: string
   winner?: string
   date?: string
   venue?: string
   format?: string
-  score?: string
-  status?: 'live' | 'recent' | 'upcoming'
+  competition?: string
+  status?: string
 }
 
 interface Props {
@@ -23,87 +21,123 @@ interface Props {
   format: string
 }
 
-// Placeholder matches shown while loading or on error
-const PLACEHOLDER: Match[] = [
-  { team1: 'India', team2: 'Australia', winner: 'India', format: 'T20', venue: 'Wankhede', status: 'recent', score: 'IND 187/4 (20) · AUS 165/8 (20)' },
-  { team1: 'CSK', team2: 'MI', winner: 'CSK', format: 'IPL', venue: 'Chepauk', status: 'recent', score: 'CSK 192/3 (20) · MI 178/6 (20)' },
-  { team1: 'RCB', team2: 'KKR', winner: 'KKR', format: 'IPL', venue: 'Eden Gardens', status: 'recent', score: 'KKR 201/5 (20) · RCB 196/7 (20)' },
-  { team1: 'England', team2: 'Pakistan', winner: 'England', format: 'ODI', venue: "Lord's", status: 'recent', score: 'ENG 312/6 (50) · PAK 278/9 (50)' },
-  { team1: 'SRH', team2: 'DC', winner: 'SRH', format: 'IPL', venue: 'Rajiv Gandhi', status: 'recent', score: 'SRH 215/4 (20) · DC 198/7 (20)' },
-]
-
-function statusDot(status?: string) {
-  if (status === 'live') return <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse flex-shrink-0" />
-  if (status === 'upcoming') return <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
-  return <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-}
-
 export default function LiveScoreTicker({ apiBase, format }: Props) {
-  const [matches, setMatches] = useState<Match[]>(PLACEHOLDER)
+  const [matches, setMatches] = useState<Match[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
-    const url = `${apiBase}/api/matches/recent?format=${format}&limit=8`
+    setLoading(true)
+    setError(false)
+    const url = `${apiBase}/api/matches/recent?format=${encodeURIComponent(format)}&limit=12`
     fetch(url)
       .then(r => r.json())
       .then(data => {
-        const list: Match[] = Array.isArray(data?.matches) ? data.matches : Array.isArray(data) ? data : []
-        if (list.length > 0) setMatches(list)
+        const list: Match[] = Array.isArray(data?.matches) ? data.matches : []
+        setMatches(list)
+        setLoading(false)
       })
-      .catch(() => { /* keep placeholder */ })
-      .finally(() => setLoading(false))
+      .catch(() => {
+        setError(true)
+        setLoading(false)
+      })
   }, [apiBase, format])
+
+  // Format a short date string: "12 Mar 2024" → "Mar 2024"
+  const shortDate = (d?: string) => {
+    if (!d) return ''
+    const dt = new Date(d)
+    if (isNaN(dt.getTime())) return d
+    return dt.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+  }
+
+  const isEmpty = !loading && !error && matches.length === 0
 
   return (
     <div className="border-b border-white/[0.05]" style={{ background: 'rgba(255,255,255,0.015)' }}>
       <div className="max-w-screen-xl mx-auto px-4 py-2 flex items-center gap-3 overflow-hidden">
         {/* Label */}
         <div className="flex-shrink-0 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">Live</span>
-          <span className="text-[10px] text-slate-600 hidden sm:inline">/ Recent</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            Recent
+          </span>
+          <span className="text-[10px] text-orange-400 font-semibold ml-1">{format}</span>
         </div>
         <div className="w-px h-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }} />
 
-        {/* Scrolling ticker */}
+        {/* Ticker content */}
         <div className="flex-1 overflow-x-auto scrollbar-hide">
-          <div className="flex gap-3 pb-0.5" style={{ minWidth: 'max-content' }}>
-            {(loading ? PLACEHOLDER : matches).map((m, i) => {
-              const t1 = m.team1 ?? m.teams?.[0] ?? '?'
-              const t2 = m.team2 ?? m.teams?.[1] ?? '?'
-              const won = m.winner
-              return (
-                <div
-                  key={m.match_id ?? i}
-                  className="flex items-center gap-2 px-3 py-1 rounded-lg flex-shrink-0 text-[11px]"
-                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-                >
-                  {statusDot(m.status)}
-                  <span className={`font-semibold ${won === t1 ? 'text-green-400' : 'text-slate-300'}`}>{t1}</span>
-                  <span className="text-slate-600">vs</span>
-                  <span className={`font-semibold ${won === t2 ? 'text-green-400' : 'text-slate-300'}`}>{t2}</span>
-                  {m.score && (
-                    <>
-                      <span className="text-slate-700">·</span>
-                      <span className="text-slate-500 text-[10px]">{m.score}</span>
-                    </>
-                  )}
-                  {won && !m.score && (
-                    <>
-                      <span className="text-slate-700">·</span>
-                      <span className="text-green-400 text-[10px] font-medium">{won} won</span>
-                    </>
-                  )}
-                  {m.format && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded font-bold text-orange-400"
-                      style={{ background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.15)' }}>
-                      {m.format}
+          {loading && (
+            <div className="flex gap-3 pb-0.5" style={{ minWidth: 'max-content' }}>
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-6 w-40 rounded-lg animate-pulse"
+                  style={{ background: 'rgba(255,255,255,0.04)' }} />
+              ))}
+            </div>
+          )}
+
+          {error && (
+            <span className="text-[10px] text-slate-600">Could not load recent matches</span>
+          )}
+
+          {isEmpty && (
+            <span className="text-[10px] text-slate-600">No recent {format} matches in dataset</span>
+          )}
+
+          {!loading && !error && matches.length > 0 && (
+            <div className="flex gap-3 pb-0.5" style={{ minWidth: 'max-content' }}>
+              {matches.map((m, i) => {
+                const winner = m.winner || ''
+                const team1 = m.team1 || '?'
+                // Cricsheet stores winner; use it to infer teams where possible
+                const isT1Winner = winner && winner === team1
+                return (
+                  <div
+                    key={m.match_id ?? i}
+                    className="flex items-center gap-2 px-3 py-1 rounded-lg flex-shrink-0 text-[11px]"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+
+                    {/* Teams */}
+                    <span className={`font-semibold ${isT1Winner ? 'text-green-400' : 'text-slate-300'}`}>
+                      {team1}
                     </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+
+                    {/* Winner badge */}
+                    {winner && (
+                      <>
+                        <span className="text-slate-600 text-[9px]">·</span>
+                        <span className="text-green-400 text-[10px] font-medium">{winner} won</span>
+                      </>
+                    )}
+
+                    {/* Venue */}
+                    {m.venue && (
+                      <>
+                        <span className="text-slate-700 text-[9px]">·</span>
+                        <span className="text-slate-600 text-[10px] max-w-[120px] truncate">{m.venue}</span>
+                      </>
+                    )}
+
+                    {/* Date */}
+                    {m.date && (
+                      <span className="text-slate-700 text-[10px]">{shortDate(m.date)}</span>
+                    )}
+
+                    {/* Format badge */}
+                    {m.competition && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded font-bold text-orange-400"
+                        style={{ background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.15)' }}>
+                        {m.competition}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
