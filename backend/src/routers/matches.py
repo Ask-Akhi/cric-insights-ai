@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query
 from typing import Optional, List
 from pydantic import BaseModel
 from ..providers.cricsheet_provider import CricsheetProvider
+from ..providers.live_provider import fetch_live_matches, get_live_source
 import polars as pl
 
 router = APIRouter()
@@ -231,10 +232,27 @@ def recent_matches(
     limit: int = Query(10, le=50),
 ):
     """
-    Return the most recent matches from the Cricsheet static dataset.
-    NOTE: This is a downloaded snapshot — not live data.
-    'format' tab values (T20/ODI/Test) are mapped to all matching Cricsheet format codes.
+    Return the most recent/live matches.
+    - If CRICAPI_KEY / SPORTMONKS_KEY / RAPIDAPI_KEY env var is set → uses that live API.
+    - Otherwise → falls back to Cricsheet static snapshot (up to Jan 2026).
+    Set one of those keys in Railway Variables to enable live data.
     """
+    source = get_live_source()
+
+    # ── Live API path ──────────────────────────────────────────────────────────
+    if source != "cricsheet":
+        live_matches, src = fetch_live_matches(format_filter=format, limit=limit)
+        if live_matches:
+            return {
+                "matches": live_matches,
+                "count": len(live_matches),
+                "source": src,
+                "live": True,
+                "data_note": f"Live data via {src}",
+            }
+        # Live API returned nothing (rate limit / error) — fall through to Cricsheet
+
+    # ── Cricsheet static fallback ──────────────────────────────────────────────
     provider = _get_provider()
 
     # Map UI tab labels → all matching Cricsheet format codes
@@ -242,16 +260,19 @@ def recent_matches(
         "T20":  ["T20", "IT20", "IPL", "BBL", "CPL", "PSL", "BPL", "LPL",
                  "SA20", "SAT", "WPL", "MLC", "ILT", "SSM", "NTB", "WBB",
                  "MLT", "NPL", "WCL", "WTB", "RLC", "MCL", "CCH", "CTC",
-                 "MDM", "FRB", "SSM", "HND", "RHF", "PKS", "IPO", "IPT",
-                 "MCC", "MCT", "WOD", "CEC", "SMA"],
-        "ODI":  ["ODI", "ODC", "ODM", "WCL"],
+                 "MDM", "FRB", "HND", "RHF", "PKS", "IPO", "IPT",
+                 "MCT", "WOD", "CEC", "SMA"],
+        "ODI":  ["ODI", "ODC", "ODM"],
         "Test": ["Test", "WTC", "WTB"],
     }
 
     fmt_codes = FORMAT_MAP.get(format or "", [format] if format else None)  # type: ignore[arg-type]
     raw = provider.get_matches(formats=fmt_codes)
     if not raw:
-        return {"matches": [], "count": 0, "data_note": "No matches found for this format in the Cricsheet dataset."}
+        return {
+            "matches": [], "count": 0, "source": "cricsheet", "live": False,
+            "data_note": "No matches found for this format in the Cricsheet dataset.",
+        }
 
     df = pl.DataFrame(raw)
     df = (
@@ -260,7 +281,7 @@ def recent_matches(
         .head(limit)
     )
 
-    # Derive team1/team2 from ball-by-ball batting_team data for the match
+    # Resolve both teams from ball-by-ball data
     lf_balls = provider.datasets.get("balls")
     match_teams: dict = {}
     if lf_balls is not None and not df.is_empty():
@@ -274,8 +295,7 @@ def recent_matches(
         )
         for mid in ids:
             rows = teams_df.filter(pl.col("match_id") == mid).sort("innings")
-            team_list = rows.get_column("batting_team").unique().to_list()
-            match_teams[mid] = team_list
+            match_teams[mid] = rows.get_column("batting_team").unique().to_list()
 
     latest_date = df.get_column("start_date").max() if not df.is_empty() else "unknown"
 
@@ -293,12 +313,15 @@ def recent_matches(
             "format": row.get("format") or format or "",
             "competition": row.get("competition") or "",
             "status": "recent",
+            "score": "",
         })
 
     return {
         "matches": results,
         "count": len(results),
-        "data_note": f"Cricsheet snapshot — latest match: {latest_date}. Not live data.",
+        "source": "cricsheet",
+        "live": False,
+        "data_note": f"Cricsheet snapshot — latest match: {latest_date}. Set CRICAPI_KEY in Railway Variables for live data.",
         "latest_date": str(latest_date),
     }
 
