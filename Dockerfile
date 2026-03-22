@@ -6,49 +6,52 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# ─── Stage 2: Python app + Supervisor ────────────────────────────────────────
+# ─── Stage 2: Python app (lean — no Cricsheet download at build time) ─────────
 FROM python:3.12-slim
 
-# System deps
+# System deps — curl for healthcheck only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/data/cricsheet
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working dir
 WORKDIR /app
 
-# Default env vars (overridden at runtime via -e or platform secrets)
+# ── Environment ──────────────────────────────────────────────────────────────
 ENV LLM_PROVIDER=gemini \
     LLM_MODEL=gemini-2.5-flash \
     CRICSHEET_DATA_DIR=/app/data/cricsheet \
     FRONTEND_DIST=/app/frontend/dist \
     PYTHONPATH=/app \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    # Polars: limit thread pool so it doesn't spawn 8+ threads on a 512 MB container
+    POLARS_MAX_THREADS=2
 
-# Copy Python requirements and install
+# ── Python deps — production only (no pytest, no pyarrow) ─────────────────────
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy built frontend from stage 1
+# ── Frontend ──────────────────────────────────────────────────────────────────
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
-# Copy backend source (includes ui/ subdirectory)
+# ── Backend source ────────────────────────────────────────────────────────────
 COPY backend/ ./backend/
 
-# ── Download & parse Cricsheet data at build time ────────────────────────────
-# parse_cricsheet.py handles the current Cricsheet v1 CSV format (info+ball rows).
-# --download fetches both gender zips (~400 MB each) from cricsheet.org,
-# extracts CSVs, then converts every match into batched Parquet files baked
-# into the image — Railway has no persistent volume so data must be in the image.
-# The || echo ensures a download failure doesn't abort the build.
-RUN python -u backend/src/scripts/parse_cricsheet.py --gender both --download \
-    && echo "✅ Cricsheet data ready" \
-    || echo "⚠️  Cricsheet parse failed — app will start without data"
+# ── Cricsheet data: NOT downloaded at build time ──────────────────────────────
+# Downloading ~400 MB + parsing at build time bloats the image and causes OOM
+# on Railway 512 MB containers. Instead, data is downloaded lazily on first
+# request via CricsheetProvider._ensure_data().
+# To pre-bake data: set BUILD_CRICSHEET=1 and redeploy (needs Railway Pro plan).
+RUN if [ "${BUILD_CRICSHEET:-0}" = "1" ]; then \
+      python -u backend/src/scripts/parse_cricsheet.py --gender male --download \
+      && echo "✅ Cricsheet data baked into image" \
+      || echo "⚠️  Cricsheet parse failed"; \
+    else \
+      echo "⏭  Skipping Cricsheet download (lazy mode) — data fetched on first request"; \
+    fi
 
-# Railway injects $PORT at runtime.
-# Health endpoint responds in <1s (routers load in background thread).
-HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=10 \
+# ── Healthcheck ───────────────────────────────────────────────────────────────
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=6 \
     CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
 
-CMD ["sh", "-c", "exec uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --log-level info --timeout-keep-alive 30"]
+# ── Single uvicorn worker — Railway hobby = 512 MB; 2+ workers = OOM ──────────
+CMD ["sh", "-c", "exec uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --log-level warning --timeout-keep-alive 30 --limit-concurrency 20"]

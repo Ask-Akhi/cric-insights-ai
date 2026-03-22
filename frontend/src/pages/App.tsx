@@ -116,8 +116,8 @@ export default function App() {
                   : 'border-white/10 text-slate-400 bg-white/[0.03]'
               }`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${left <= 3 ? 'bg-red-400 animate-pulse' : 'bg-slate-600'}`} />
-              {left > 0 ? `${left} free` : '0 left'}            </div>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${left <= 3 ? 'bg-red-400 animate-pulse' : 'bg-slate-600'}`} />              {left > 0 ? `${left} free` : '0 left'}
+            </div>
             <button
               onClick={() => setGrounded(g => !g)}
               title={grounded ? 'Gemini web search ON — AI can look up current info' : 'Web search OFF — AI uses local data only'}
@@ -143,9 +143,9 @@ export default function App() {
 
         {/* Mobile format pills */}
         <div className="md:hidden flex items-center gap-1 px-4 pb-2">
-          {['T20', 'ODI', 'Test'].map(f => (
-            <button key={f} onClick={() => setFormat(f)} className={`nav-pill flex-1 text-center ${format === f ? 'active' : ''}`}>{f}</button>
-          ))}        </div>
+          {['T20', 'ODI', 'Test'].map(f => (            <button key={f} onClick={() => setFormat(f)} className={`nav-pill flex-1 text-center ${format === f ? 'active' : ''}`}>{f}</button>
+          ))}
+        </div>
       </header>
 
       {/* ── Live Score Ticker ─────────────────────────────────── */}
@@ -178,7 +178,7 @@ export default function App() {
         <div className="max-w-screen-xl mx-auto px-4 py-6 md:py-12 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
 
           {/* Editorial headline */}          <div className="flex-1 animate-slide-up">
-            <div className="inline-flexitems-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
+            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
               style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#ff6b35' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
               IPL 2026 · AI Insights
@@ -191,11 +191,11 @@ export default function App() {
               </span>
             </h2>
             <p className="text-slate-400 text-sm leading-relaxed max-w-md hidden sm:block">
-              AI-powered insights for fantasy teams, match predictions, player analysis, and live IPL data — all in one place.
-            </p>          </div>
+              AI-powered insights for fantasy teams, match predictions, player analysis, and live IPL data — all in one place.            </p>
+          </div>
 
           {/* Stats ticker — 2×2 on mobile, 4×1 on desktop */}
-          <div className="grid grid-cols-2 md:grid-cols-4gap-2 md:gap-3 w-full md:w-auto flex-shrink-0 animate-fade-in">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 w-full md:w-auto flex-shrink-0 animate-fade-in">
             {STATS.map((s, i) => (
               <div key={i} className="ticker-card py-3">
                 <div className="text-xl mb-0.5">{s.icon}</div>
@@ -233,8 +233,8 @@ export default function App() {
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
               <span className="text-xs text-slate-300 font-medium">System Online</span>
-            </div>
-            <div className="section-divider" />            <div className="space-y-2">
+            </div>            <div className="section-divider" />
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-slate-600 uppercase tracking-wide">Format</span>
                 <span className="stat-badge stat-badge-orange">{format}</span>

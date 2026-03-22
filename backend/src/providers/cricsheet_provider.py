@@ -1,13 +1,20 @@
 import os
+import logging
+import threading
 from typing import Iterable, List, Dict
 import polars as pl
 
 from .base import BaseDataProvider
 
+log = logging.getLogger(__name__)
+
 _default_data = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 DATA_DIR = os.environ.get("CRICSHEET_DATA_DIR", _default_data)
 RAW_DIR = os.path.join(DATA_DIR, "raw")
 PARQUET_DIR = os.path.join(DATA_DIR, "parquet")
+
+# Global lock so only one thread downloads/parses at a time
+_DOWNLOAD_LOCK = threading.Lock()
 
 # Columns that must exist in every loaded LazyFrame
 REQUIRED_COLS = [
@@ -33,9 +40,40 @@ class CricsheetProvider(BaseDataProvider):
                     paths.append(os.path.join(root, f))
         return sorted(paths)
 
+    def _ensure_data(self):
+        """If no parquet files exist, trigger a background download (male only)."""
+        paths = self._collect_parquet_paths()
+        if paths:
+            return  # already have data
+
+        with _DOWNLOAD_LOCK:
+            # Re-check inside lock
+            if self._collect_parquet_paths():
+                return
+
+            log.info("📥 No Cricsheet data found — downloading male dataset in background …")
+            try:
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "-m",
+                     "backend.src.scripts.parse_cricsheet",
+                     "--gender", "male", "--download"],
+                    capture_output=True, text=True, timeout=600,
+                    cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+                )
+                if result.returncode == 0:
+                    log.info("✅ Cricsheet download complete")
+                else:
+                    log.warning(f"⚠️  Cricsheet download failed:\n{result.stderr[-500:]}")
+            except Exception as e:
+                log.warning(f"⚠️  Cricsheet download error: {e}")
+
     def load(self):
         os.makedirs(RAW_DIR, exist_ok=True)
         os.makedirs(PARQUET_DIR, exist_ok=True)
+
+        # Download data lazily if no parquet files exist yet
+        self._ensure_data()
 
         paths = self._collect_parquet_paths()
         if not paths:

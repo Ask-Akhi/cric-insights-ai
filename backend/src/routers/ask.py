@@ -44,8 +44,9 @@ async def ask(req: AskRequest):
         except ValueError as e:
             raise HTTPException(status_code=503, detail=str(e))
         if not answer or not answer.strip():
-            answer = _FALLBACK
-        return AskResponse(answer=answer, intent="general", players=[], mode="grounded")    # ── LangGraph multi-step pipeline ────────────────────────────────────────
+            answer = _FALLBACK        return AskResponse(answer=answer, intent="general", players=[], mode="grounded")
+
+    # ── LangGraph multi-step pipeline ────────────────────────────────────────
     try:
         from ..services.cricket_graph import run_graph   # lazy import — avoids blocking startup
         result = await run_graph(req.prompt, ctx)
