@@ -10,9 +10,10 @@ import MatchInsights from './MatchInsights'
 import Insights from './Insights'
 import PlayerCompare from './PlayerCompare'
 import FantasyXI from './FantasyXI'
-import ProBanner from '../components/ProBanner'
-import ProModal from '../components/ProModal'
 import LiveScoreTicker from '../components/LiveScoreTicker'
+// ProBanner / ProModal disabled until Stripe is configured
+// import ProBanner from '../components/ProBanner'
+// import ProModal from '../components/ProModal'
 
 // Free tier: 15 AI questions per day tracked in localStorage
 const FREE_LIMIT = 15
@@ -62,17 +63,16 @@ export default function App() {
   const [grounded, setGrounded]     = useState(true)
   const [format, setFormat]         = useState('T20')
   const [menuOpen, setMenuOpen]     = useState(false)
-  const [proOpen, setProOpen]       = useState(false)
   const [tickerLive, setTickerLive] = useState(false)   // true only when live provider (CricAPI etc.) is active
   const { left, increment }         = useQuestionCounter()
 
   const activeTool = TOOLS.find(t => t.id === active)!
 
   const selectTool = (id: string) => { setActive(id); setMenuOpen(false) }
-
-  return (    <div className="min-h-screen app-bg relative overflow-x-hidden">
-      {/* Pro upgrade modal */}
-      <ProModal open={proOpen} onClose={() => setProOpen(false)} />
+  return (
+    <div className="min-h-screen app-bg relative overflow-x-hidden">
+      {/* Pro upgrade modal — disabled until Stripe is configured */}
+      {/* <ProModal open={proOpen} onClose={() => setProOpen(false)} /> */}
 
       {/* Ambient orbs — reduced on mobile for perf */}
       <div className="orb w-[600px] h-[600px] bg-orange-500 top-[-200px] left-[-200px]" style={{ opacity: 0.10 }} />
@@ -107,18 +107,18 @@ export default function App() {
               <button key={f} onClick={() => setFormat(f)} className={`nav-pill ${format === f ? 'active' : ''}`}>{f}</button>
             ))}
           </nav>          {/* Right: live toggle + question counter + mobile menu button */}
-          <div className="flex items-center gap-2">            {/* Questions left pill — clickable, opens Pro modal */}
-            <button
-              onClick={() => setProOpen(true)}
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 hover:opacity-80 ${
+          <div className="flex items-center gap-2">
+            {/* Questions left — static pill, no Pro modal yet */}
+            <div
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border ${
                 left <= 3
                   ? 'border-red-500/30 text-red-400 bg-red-500/[0.08]'
                   : 'border-white/10 text-slate-400 bg-white/[0.03]'
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${left <= 3 ? 'bg-red-400 animate-pulse' : 'bg-slate-600'}`} />
-              {left > 0 ? `${left} free` : '⚡ Upgrade'}
-            </button>            <button
+              {left > 0 ? `${left} free` : '0 left'}            </div>
+            <button
               onClick={() => setGrounded(g => !g)}
               title={grounded ? 'Gemini web search ON — AI can look up current info' : 'Web search OFF — AI uses local data only'}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
@@ -145,8 +145,10 @@ export default function App() {
         <div className="md:hidden flex items-center gap-1 px-4 pb-2">
           {['T20', 'ODI', 'Test'].map(f => (
             <button key={f} onClick={() => setFormat(f)} className={`nav-pill flex-1 text-center ${format === f ? 'active' : ''}`}>{f}</button>
-          ))}
-        </div>      </header>      {/* ── Live Score Ticker ─────────────────────────────────── */}
+          ))}        </div>
+      </header>
+
+      {/* ── Live Score Ticker ─────────────────────────────────── */}
       <LiveScoreTicker apiBase={API_BASE} format={format} onLiveChange={setTickerLive} />
 
       {/* ── Mobile slide-down menu ────────────────────────────── */}
@@ -175,8 +177,8 @@ export default function App() {
       <section className="relative z-10 border-b border-white/[0.05]" style={{ background: 'linear-gradient(180deg, rgba(255,107,53,0.05) 0%, transparent 100%)' }}>
         <div className="max-w-screen-xl mx-auto px-4 py-6 md:py-12 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
 
-          {/* Editorial headline */}
-          <div className="flex-1 animate-slide-up">            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
+          {/* Editorial headline */}          <div className="flex-1 animate-slide-up">
+            <div className="inline-flexitems-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
               style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#ff6b35' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
               IPL 2026 · AI Insights
@@ -190,9 +192,10 @@ export default function App() {
             </h2>
             <p className="text-slate-400 text-sm leading-relaxed max-w-md hidden sm:block">
               AI-powered insights for fantasy teams, match predictions, player analysis, and live IPL data — all in one place.
-            </p>
-          </div>          {/* Stats ticker — 2×2 on mobile, 4×1 on desktop */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 w-full md:w-auto flex-shrink-0 animate-fade-in">
+            </p>          </div>
+
+          {/* Stats ticker — 2×2 on mobile, 4×1 on desktop */}
+          <div className="grid grid-cols-2 md:grid-cols-4gap-2 md:gap-3 w-full md:w-auto flex-shrink-0 animate-fade-in">
             {STATS.map((s, i) => (
               <div key={i} className="ticker-card py-3">
                 <div className="text-xl mb-0.5">{s.icon}</div>
@@ -223,18 +226,21 @@ export default function App() {
                 <span className="text-[10px] text-slate-600 mt-1 leading-none">{t.desc}</span>
               </span>
             </motion.button>
-          ))}          {/* Status panel */}
+          ))}
+
+          {/* Status panel */}
           <div className="mt-4 glass p-4 space-y-3">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
               <span className="text-xs text-slate-300 font-medium">System Online</span>
             </div>
-            <div className="section-divider" />
-            <div className="space-y-2">
+            <div className="section-divider" />            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-slate-600 uppercase tracking-wide">Format</span>
                 <span className="stat-badge stat-badge-orange">{format}</span>
-              </div>              <div className="flex items-center justify-between">
+              </div>
+
+              <div className="flex items-center justify-between">
                 <span className="text-[10px] text-slate-600 uppercase tracking-wide">Search</span>
                 <span className={`stat-badge ${grounded ? 'stat-badge-green' : 'stat-badge-blue'}`}>
                   {grounded ? 'Web' : 'AI Only'}
@@ -243,10 +249,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Pro upsell — sidebar widget */}
-          <div className="mt-3">
-            <ProBanner variant="sidebar" questionsLeft={left} />
-          </div>
+          {/* Pro upsell — disabled until Stripe configured */}
+          {/* <div className="mt-3"><ProBanner variant="sidebar" questionsLeft={left} /></div> */}
         </aside>
 
         {/* ── Main Content ──────────────────────────────────── */}
@@ -269,7 +273,8 @@ export default function App() {
               initial={{ opacity: 0, y: 20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}            >
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            >
               {active === 'ask'      && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
               {active === 'batter'   && <BatterStats   apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
               {active === 'bowler'   && <BowlerStats   apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}

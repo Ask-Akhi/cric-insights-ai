@@ -2,10 +2,12 @@
 Live cricket data provider abstraction.
 
 Priority order (first key found wins):
-  1. CRICAPI_KEY       → CricAPI.com       (free: 100 req/day, paid plans available)
-  2. SPORTMONKS_KEY    → Sportmonks.com    (paid, most comprehensive)
-  3. RAPIDAPI_KEY      → RapidAPI cricket  (multiple providers via one key)
-  4. <none>            → falls back to Cricsheet static data
+  1. RAPIDAPI_KEY       → Cricbuzz via RapidAPI (free 500 req/day — most reliable)
+                          Host: cricbuzz-cricket.p.rapidapi.com
+                          Sign up: https://rapidapi.com/cricketapilive/api/cricbuzz-cricket
+  2. SPORTMONKS_KEY     → Sportmonks.com (paid, most comprehensive)
+  3. CRICAPI_KEY        → CricAPI.com (free 100 req/day — basic)
+  4. <none>             → falls back to Cricsheet static data
 
 Set the key as a Railway environment variable. No code changes needed to switch providers.
 """
@@ -269,69 +271,148 @@ def fetch_sportmonks_live(format_filter: str | None = None) -> list[dict]:
         return []
 
 
-# ── RapidAPI / cricket-live-data provider ─────────────────────────────────────
-# Multiple cricket APIs available on RapidAPI under one key.
-# Example host: cricket-live-data.p.rapidapi.com
+# ── RapidAPI / Cricbuzz provider (RECOMMENDED — most reliable) ─────────────
+# Free tier: 500 req/day on Cricbuzz-Cricket API via RapidAPI.
+# Sign up: https://rapidapi.com/cricketapilive/api/cricbuzz-cricket
+# Set env var: RAPIDAPI_KEY=your_key_here
+# RapidAPI also works for the older cricket-live-data host as fallback.
 
-def fetch_rapidapi_live(format_filter: str | None = None) -> list[dict]:
+RAPIDAPI_CRICBUZZ_HOST = "cricbuzz-cricket.p.rapidapi.com"
+
+
+def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
     """
-    Fetch live matches via RapidAPI cricket-live-data.
-    Endpoint: GET https://cricket-live-data.p.rapidapi.com/matches
+    Fetch live + recent matches from Cricbuzz via RapidAPI.
+    Endpoint: GET /matches/v1/live  (also tries /recent)
     """
-    cache_key = f"rapidapi_live_{format_filter}"
+    cache_key = f"cricbuzz_live_{format_filter}"
     cached = _cached(cache_key)
     if cached is not None:
         return cached
 
-    try:
-        url = "https://cricket-live-data.p.rapidapi.com/matches"
-        r = httpx.get(
-            url,
-            headers={
-                "x-rapidapi-key": RAPIDAPI_KEY,
-                "x-rapidapi-host": "cricket-live-data.p.rapidapi.com",
-            },
-            timeout=8,
-        )
-        r.raise_for_status()
-        data = r.json()
+    headers = {
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-host": RAPIDAPI_CRICBUZZ_HOST,
+    }
 
-        matches = []
-        for m in (data.get("results") or data.get("data") or []):
-            fmt = m.get("match_format") or m.get("type") or "T20"
-            if format_filter and fmt.upper() not in format_filter.upper():
-                continue
-            matches.append(_match(
-                match_id=str(m.get("id") or m.get("match_id", "")),
-                team1=m.get("team_1") or m.get("home_team", ""),
-                team2=m.get("team_2") or m.get("away_team", ""),
-                score=m.get("score") or m.get("live_score", ""),
-                winner=m.get("winner", ""),
-                status=m.get("status", "live").lower(),
-                venue=m.get("venue", ""),
-                date=str(m.get("date", ""))[:10],
-                format=fmt.upper(),
-                competition=m.get("series") or m.get("competition", ""),
-            ))
+    matches: list[dict] = []
 
-        _store(cache_key, matches)
-        return matches
+    # Try live matches first, then recent
+    for endpoint in ("/matches/v1/live", "/matches/v1/recent"):
+        if len(matches) >= 12:
+            break
+        try:
+            r = httpx.get(
+                f"https://{RAPIDAPI_CRICBUZZ_HOST}{endpoint}",
+                headers=headers,
+                timeout=8,
+            )
+            if r.status_code == 403:
+                log.warning(f"Cricbuzz RapidAPI 403 — check your RAPIDAPI_KEY subscription")
+                break
+            r.raise_for_status()
+            data = r.json()
 
-    except Exception as e:
-        log.warning(f"RapidAPI fetch failed: {e}")
-        return []
+            # Cricbuzz wraps results in typeMatches → seriesMatches → seriesAdWrapper → matches
+            for type_block in data.get("typeMatches", []):
+                match_type = type_block.get("matchType", "")  # e.g. "International", "League"
+                for series in type_block.get("seriesMatches", []):
+                    wrapper = series.get("seriesAdWrapper") or series
+                    series_name = wrapper.get("seriesName", "")
+                    for m in wrapper.get("matches", []):
+                        mi = m.get("matchInfo", {})
+                        ms = m.get("matchScore", {})
+
+                        fmt = _fmt_cricbuzz(mi.get("matchFormat", ""), series_name)
+                        if format_filter and fmt != format_filter:
+                            continue
+
+                        team1 = mi.get("team1", {}).get("teamName", "")
+                        team2 = mi.get("team2", {}).get("teamName", "")
+
+                        # Build score string from innings scores
+                        score_parts = []
+                        for tid, tkey in [(mi.get("team1", {}).get("teamId"), "team1Score"),
+                                          (mi.get("team2", {}).get("teamId"), "team2Score")]:
+                            ts = ms.get(tkey, {})
+                            if ts:
+                                for inn in ["inngs1", "inngs2"]:
+                                    ig = ts.get(inn, {})
+                                    if ig and ig.get("runs") is not None:
+                                        overs = ig.get("overs", "")
+                                        tname = team1 if tkey == "team1Score" else team2
+                                        score_parts.append(
+                                            f"{tname}: {ig.get('runs', 0)}/{ig.get('wickets', 0)}"
+                                            + (f" ({overs} ov)" if overs else "")
+                                        )
+                        score_str = "  ".join(score_parts)
+
+                        status_raw = mi.get("status", "").lower()
+                        state = mi.get("state", "").lower()
+                        if state == "live" or "in progress" in status_raw:
+                            status = "live"
+                        elif "upcoming" in status_raw or state == "preview":
+                            status = "upcoming"
+                        else:
+                            status = "recent"
+
+                        # Winner from status string (Cricbuzz puts it there)
+                        status_str = mi.get("status", "")
+                        winner = ""
+                        for tname in [team1, team2]:
+                            if tname and f"{tname} won" in status_str:
+                                winner = tname
+                                break
+
+                        matches.append(_match(
+                            match_id=str(mi.get("matchId", "")),
+                            team1=team1,
+                            team2=team2,
+                            score=score_str,
+                            winner=winner,
+                            status=status,
+                            venue=mi.get("venueInfo", {}).get("ground", ""),
+                            date=str(mi.get("startDate", ""))[:10],
+                            format=fmt,
+                            competition=series_name,
+                        ))
+
+        except Exception as e:
+            log.warning(f"Cricbuzz ({endpoint}) fetch failed: {e}")
+
+    _store(cache_key, matches)
+    log.info(f"Cricbuzz: fetched {len(matches)} matches (filter={format_filter})")
+    return matches
+
+
+def _fmt_cricbuzz(match_format: str, series_name: str = "") -> str:
+    """Map Cricbuzz matchFormat string → T20 / ODI / Test."""
+    mf = match_format.upper()
+    sn = series_name.lower()
+    if mf in ("TEST", "FTEST"):
+        return "Test"
+    if mf in ("ODI", "ODM"):
+        return "ODI"
+    if mf in ("T20", "IT20", "T20I"):
+        return "T20"
+    # Fall back to series name heuristics
+    if "test" in sn:
+        return "Test"
+    if "one day" in sn or " odi" in sn:
+        return "ODI"
+    return "T20"
 
 
 # ── Public interface — auto-selects provider ───────────────────────────────────
 
 def get_live_source() -> str:
     """Return which live provider is active, or 'cricsheet' if none configured."""
-    if CRICAPI_KEY:
-        return "cricapi"
+    if RAPIDAPI_KEY:
+        return "rapidapi"      # Cricbuzz via RapidAPI — most reliable, 500 req/day free
     if SPORTMONKS_KEY:
         return "sportmonks"
-    if RAPIDAPI_KEY:
-        return "rapidapi"
+    if CRICAPI_KEY:
+        return "cricapi"
     return "cricsheet"
 
 
@@ -352,6 +433,6 @@ def fetch_live_matches(format_filter: str | None = None, limit: int = 12) -> tup
         return fetch_sportmonks_live(format_filter)[:limit], "sportmonks"
 
     if source == "rapidapi":
-        return fetch_rapidapi_live(format_filter)[:limit], "rapidapi"
+        return fetch_cricbuzz_live(format_filter)[:limit], "rapidapi"
 
     return [], "cricsheet"  # caller falls back to Cricsheet
