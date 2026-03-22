@@ -73,6 +73,18 @@ desktop.ini
 *.log
 logs/
 
+# ─── Temp / scratch files (never commit) ──────────────────────────────────────
+build.log
+fix_graph.py
+do_patch.py
+run_patch.py
+inspect_csv*.py
+verify_data.py
+test_api*.py
+read_readme.py
+run_with_venv.py
+run_test.bat
+
 # ─── Docker local override ────────────────────────────────────────────────────
 docker-compose.override.yml
 # ─── Android (Capacitor) ──────────────────────────────────────────────────────
