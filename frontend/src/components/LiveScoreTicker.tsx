@@ -29,9 +29,10 @@ interface ApiResponse {
 interface Props {
   apiBase: string
   format: string
+  onLiveChange?: (isLive: boolean) => void
 }
 
-export default function LiveScoreTicker({ apiBase, format }: Props) {
+export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props) {
   const [matches, setMatches] = useState<Match[]>([])
   const [latestDate, setLatestDate] = useState<string>('')
   const [isLive, setIsLive] = useState(false)
@@ -44,12 +45,13 @@ export default function LiveScoreTicker({ apiBase, format }: Props) {
     setError(false)
     const url = `${apiBase}/api/matches/recent?format=${encodeURIComponent(format)}&limit=12`
     fetch(url)
-      .then(r => r.json())
-      .then((data: ApiResponse) => {
+      .then(r => r.json())      .then((data: ApiResponse) => {
         setMatches(Array.isArray(data?.matches) ? data.matches : [])
         setLatestDate(data?.latest_date ?? '')
-        setIsLive(data?.live ?? false)
+        const live = data?.live ?? false
+        setIsLive(live)
         setSource(data?.source ?? 'cricsheet')
+        onLiveChange?.(live)
         setLoading(false)
       })
       .catch(() => {

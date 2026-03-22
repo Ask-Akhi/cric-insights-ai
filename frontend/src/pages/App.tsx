@@ -54,7 +54,7 @@ const STATS = [
   { value: '21K+',  label: 'Matches Analysed', icon: '🏏' },
   { value: '18K+',  label: 'Players Tracked',  icon: '👤' },
   { value: '10M+',  label: 'Balls in Dataset', icon: '📊' },
-  { value: 'Live',  label: 'Web Grounding',    icon: '🌐' },
+  { value: 'AI',    label: 'Web Search',        icon: '🌐' },
 ]
 
 export default function App() {
@@ -63,6 +63,7 @@ export default function App() {
   const [format, setFormat]         = useState('T20')
   const [menuOpen, setMenuOpen]     = useState(false)
   const [proOpen, setProOpen]       = useState(false)
+  const [tickerLive, setTickerLive] = useState(false)   // true only when live provider (CricAPI etc.) is active
   const { left, increment }         = useQuestionCounter()
 
   const activeTool = TOOLS.find(t => t.id === active)!
@@ -87,7 +88,10 @@ export default function App() {
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-lg shadow-lg shadow-orange-500/30">
                 🏏
               </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-[#05070f] animate-pulse" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#05070f]"
+                style={{ background: tickerLive ? '#4ade80' : '#334155' }}
+                title={tickerLive ? 'Live cricket data' : 'Cricsheet dataset (static)'}
+              />
             </div>
             <div>
               <h1 className="text-sm font-bold text-white tracking-tight leading-none">
@@ -114,15 +118,15 @@ export default function App() {
             >
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${left <= 3 ? 'bg-red-400 animate-pulse' : 'bg-slate-600'}`} />
               {left > 0 ? `${left} free` : '⚡ Upgrade'}
-            </button>
-            <button
+            </button>            <button
               onClick={() => setGrounded(g => !g)}
+              title={grounded ? 'Gemini web search ON — AI can look up current info' : 'Web search OFF — AI uses local data only'}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
                 grounded ? 'border-green-500/30 text-green-400 bg-green-500/[0.08]' : 'border-white/10 text-slate-500 bg-white/[0.03]'
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${grounded ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
-              <span className="hidden sm:inline">{grounded ? 'Live' : 'Offline'}</span>
+              <span className="hidden sm:inline">{grounded ? 'Web Search' : 'AI Only'}</span>
             </button>
             {/* Mobile hamburger */}
             <button
@@ -142,10 +146,8 @@ export default function App() {
           {['T20', 'ODI', 'Test'].map(f => (
             <button key={f} onClick={() => setFormat(f)} className={`nav-pill flex-1 text-center ${format === f ? 'active' : ''}`}>{f}</button>
           ))}
-        </div>      </header>
-
-      {/* ── Live Score Ticker ─────────────────────────────────── */}
-      <LiveScoreTicker apiBase={API_BASE} format={format} />
+        </div>      </header>      {/* ── Live Score Ticker ─────────────────────────────────── */}
+      <LiveScoreTicker apiBase={API_BASE} format={format} onLiveChange={setTickerLive} />
 
       {/* ── Mobile slide-down menu ────────────────────────────── */}
       {menuOpen && (
@@ -174,11 +176,10 @@ export default function App() {
         <div className="max-w-screen-xl mx-auto px-4 py-6 md:py-12 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
 
           {/* Editorial headline */}
-          <div className="flex-1 animate-slide-up">
-            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
+          <div className="flex-1 animate-slide-up">            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
               style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#ff6b35' }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-              IPL 2026 · Live Analysis
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+              IPL 2026 · AI Insights
             </div>
             <h2 className="text-3xl md:text-5xl font-bold text-white leading-[1.1] tracking-tight mb-2"
               style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
@@ -233,11 +234,10 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-slate-600 uppercase tracking-wide">Format</span>
                 <span className="stat-badge stat-badge-orange">{format}</span>
-              </div>
-              <div className="flex items-center justify-between">
+              </div>              <div className="flex items-center justify-between">
                 <span className="text-[10px] text-slate-600 uppercase tracking-wide">Search</span>
                 <span className={`stat-badge ${grounded ? 'stat-badge-green' : 'stat-badge-blue'}`}>
-                  {grounded ? 'Live' : 'Offline'}
+                  {grounded ? 'Web' : 'AI Only'}
                 </span>
               </div>
             </div>
