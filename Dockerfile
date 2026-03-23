@@ -23,8 +23,8 @@ ENV LLM_PROVIDER=gemini \
     FRONTEND_DIST=/app/frontend/dist \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
-    # Polars: limit thread pool so it doesn't spawn 8+ threads on a 512 MB container
-    POLARS_MAX_THREADS=2
+    POLARS_MAX_THREADS=2 \
+    PIP_NO_CACHE_DIR=1
 
 # ── Python deps — production only (no pytest, no pyarrow) ─────────────────────
 COPY backend/requirements.txt ./requirements.txt
@@ -50,8 +50,8 @@ RUN if [ "${BUILD_CRICSHEET:-0}" = "1" ]; then \
     fi
 
 # ── Healthcheck ───────────────────────────────────────────────────────────────
-HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=6 \
-    CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
+HEALTHCHECK --interval=20s --timeout=10s --start-period=90s --retries=5 \
+    CMD curl -f http://localhost:${PORT:-8080}/api/health || curl -f http://localhost:8080/api/health || exit 1
 
 # ── Single uvicorn worker — Railway hobby = 512 MB; 2+ workers = OOM ──────────
 CMD ["sh", "-c", "exec uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --log-level warning --timeout-keep-alive 30 --limit-concurrency 20"]
