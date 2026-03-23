@@ -1,5 +1,17 @@
 """
 LangGraph-powered cricket analysis agent.
+
+Graph flow:
+  intent_router (LLM) → rag_enrichment → [stats|compare|fantasy|predict|general] → END
+                       ↘ non_cricket → END
+
+Fixes vs previous version:
+  1. intent_router uses a fast LLM call instead of keyword matching → handles
+     nuanced questions like "who scores more in powerplays" correctly.
+  2. Synthesizer node removed — only ONE specialist node ever runs per query,
+     so a second LLM call to "merge" a single answer was pure waste.
+  3. Grounded path in ask.py now passes Cricsheet-enriched context here so
+     web-search responses are backed by real ball-by-ball data.
 """
 from __future__ import annotations
 import logging
@@ -22,7 +34,7 @@ from .rag_service import build_rag_context, detect_players_in_prompt, is_cricket
 from .llm_settings import GEMINI_API_KEY, LLM_MODEL
 
 
-# -- State ---------------------------------------------------------------------
+# ── State ─────────────────────────────────────────────────────────────────────
 if _LANGGRAPH_AVAILABLE:
     class CricketState(TypedDict, total=False):
         prompt: str
@@ -30,7 +42,6 @@ if _LANGGRAPH_AVAILABLE:
         is_cricket: bool
         players: List[str]
         rag_context: Dict[str, Any]
-        sub_answers: List[str]
         final_answer: str
         mode: str
 else:
@@ -47,148 +58,188 @@ def _llm(temperature: float = 0.3) -> Any:
     )
 
 
-# -- Node 1: Intent Router -----------------------------------------------------
+# ── Node 1: Intent Router (LLM-based) ─────────────────────────────────────────
+# Uses a tiny LLM call with a strict classification prompt so nuanced questions
+# like "who scores more in powerplays" or "best death-overs bowler" are routed
+# correctly instead of falling through keyword gaps.
+_INTENT_SYSTEM = """Classify this cricket question into exactly ONE of these intents:
+  stats    — career/recent numbers, averages, records, rankings, form
+  compare  — comparing two or more players or teams against each other
+  fantasy  — Dream11 / fantasy XI picks, captain/vice-captain choices
+  predict  — match winner prediction, outcome forecasting
+  general  — everything else cricket-related (rules, history, formats, news)
+  none     — not about cricket at all
+
+Reply with ONLY the single intent word. No explanation."""
+
+
 def intent_router_node(state: CricketState) -> dict:
-    prompt = state["prompt"].lower()
-    if any(w in prompt for w in ["vs", "versus", "compare", "better", "who is better"]):
-        intent = "compare"
-    elif any(w in prompt for w in ["fantasy", "dream11", "pick", "captain", "vice captain", "xi"]):
-        intent = "fantasy"
-    elif any(w in prompt for w in ["predict", "prediction", "winner", "who will win", "chance", "likely"]):
-        intent = "predict"
-    elif any(w in prompt for w in ["stat", "average", "run", "wicket", "record", "career", "form", "innings"]):
-        intent = "stats"
-    else:
-        intent = "general"
-    players = detect_players_in_prompt(state["prompt"])
-    is_cricket = is_cricket_question(state["prompt"])
+    prompt = state["prompt"]
+    players = detect_players_in_prompt(prompt)
+    is_cricket = is_cricket_question(prompt)
+
+    # For non-cricket questions skip the LLM call entirely
+    if not is_cricket and not players:
+        return {"intent": "general", "players": players, "is_cricket": False}
+
+    try:
+        resp = _llm(0.0).invoke([          # temperature=0 → deterministic classification
+            SystemMessage(content=_INTENT_SYSTEM),
+            HumanMessage(content=prompt),
+        ])
+        raw = resp.content.strip().lower().split()[0]  # first word only
+        intent = raw if raw in {"stats", "compare", "fantasy", "predict", "general", "none"} else "general"
+        # "none" means it's not cricket — treat is_cricket as False
+        if intent == "none":
+            return {"intent": "general", "players": players, "is_cricket": False}
+    except Exception as e:
+        log.warning("Intent LLM failed (%s) — falling back to keyword heuristic", e)
+        # Keyword fallback so the graph never breaks if LLM is unavailable
+        pl = prompt.lower()
+        if any(w in pl for w in ["vs", "versus", "compare", "better", "who is better"]):
+            intent = "compare"
+        elif any(w in pl for w in ["fantasy", "dream11", "captain", "xi"]):
+            intent = "fantasy"
+        elif any(w in pl for w in ["predict", "winner", "who will win"]):
+            intent = "predict"
+        elif any(w in pl for w in ["stat", "average", "run", "wicket", "record", "career"]):
+            intent = "stats"
+        else:
+            intent = "general"
+
     return {"intent": intent, "players": players, "is_cricket": is_cricket}
 
 
-# -- Node 2: RAG Enrichment ----------------------------------------------------
+# ── Node 2: RAG Enrichment ─────────────────────────────────────────────────────
 def rag_enrichment_node(state: CricketState) -> dict:
     ctx = state.get("rag_context") or {}
     enriched = build_rag_context(state["prompt"], ctx)
     return {"rag_context": enriched}
 
 
-# -- Node 3: Stats -------------------------------------------------------------
+# ── Shared helper: build the data block string ────────────────────────────────
+def _cricsheet(state: CricketState) -> str:
+    data = state.get("rag_context", {}).get("cricsheet_data", "")
+    return f"--- CRICSHEET BALL-BY-BALL DATA ---\n{data}\n--- END ---" if data else ""
+
+
+# ── Node 3: Stats ─────────────────────────────────────────────────────────────
 _STATS_SYSTEM = f"""You are a cricket statistician. Today is {TODAY}.
 Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-State the key numbers in ONE sentence, then give a one-sentence verdict on what they mean.
-Use Cricsheet data when provided. Do not list every tournament separately."""
+Lead with the key numbers in one sentence. Follow with a one-sentence verdict on what they mean.
+Use the Cricsheet data when provided — it is real ball-by-ball data, trust it over training knowledge."""
 
 
 def stats_node(state: CricketState) -> dict:
-    cricsheet = state["rag_context"].get("cricsheet_data", "")
+    data_block = _cricsheet(state)
     try:
         resp = _llm(0.2).invoke([
             SystemMessage(content=_STATS_SYSTEM),
             HumanMessage(content=(
-                f"Stats question: {state['prompt']}\n\n"
-                f"--- CRICSHEET DATA ---\n{cricsheet or 'No data found.'}\n--- END ---\n\n"
+                f"Stats question: {state['prompt']}\n\n{data_block}\n\n"
                 "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
     except Exception as e:
         answer = f"Stats error: {e}"
-    return {"sub_answers": state.get("sub_answers", []) + [answer]}
+    return {"final_answer": answer, "mode": "graph"}
 
 
-# -- Node 4: Compare -----------------------------------------------------------
+# ── Node 4: Compare ───────────────────────────────────────────────────────────
 _COMPARE_SYSTEM = f"""You are a cricket analyst. Today is {TODAY}.
 Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-Compare the two players in 2-3 sentences covering the most important stat difference, then give a direct one-sentence verdict on who is better for the context asked."""
+Compare the players in 2-3 sentences on the most important stat difference. End with a direct one-sentence verdict.
+The Cricsheet data below is real ball-by-ball data — trust it over training knowledge."""
 
 
 def compare_node(state: CricketState) -> dict:
-    cricsheet = state["rag_context"].get("cricsheet_data", "")
+    data_block = _cricsheet(state)
     try:
         resp = _llm(0.3).invoke([
             SystemMessage(content=_COMPARE_SYSTEM),
             HumanMessage(content=(
-                f"Comparison: {state['prompt']}\n\n"
-                f"--- CRICSHEET DATA ---\n{cricsheet or 'No data'}\n--- END ---\n\n"
+                f"Comparison: {state['prompt']}\n\n{data_block}\n\n"
                 "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
     except Exception as e:
         answer = f"Comparison error: {e}"
-    return {"sub_answers": state.get("sub_answers", []) + [answer]}
+    return {"final_answer": answer, "mode": "graph"}
 
 
-# -- Node 5: Fantasy -----------------------------------------------------------
+# ── Node 5: Fantasy ───────────────────────────────────────────────────────────
 _FANTASY_SYSTEM = f"""You are a fantasy cricket expert. Today is {TODAY}.
 Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-State Captain, Vice-Captain, and 3-4 core picks in one or two sentences. Add one differential pick with a brief reason. Keep it punchy."""
+State Captain, Vice-Captain, and 3-4 core picks in one or two sentences. Add one differential pick with a brief reason.
+Base picks on the Cricsheet form data below — it is real ball-by-ball data, trust it over training knowledge."""
 
 
 def fantasy_node(state: CricketState) -> dict:
-    cricsheet = state["rag_context"].get("cricsheet_data", "")
+    data_block = _cricsheet(state)
     try:
         resp = _llm(0.4).invoke([
             SystemMessage(content=_FANTASY_SYSTEM),
             HumanMessage(content=(
-                f"Fantasy question: {state['prompt']}\n\n"
-                f"--- CRICSHEET DATA ---\n{cricsheet or 'No data'}\n--- END ---\n\n"
+                f"Fantasy question: {state['prompt']}\n\n{data_block}\n\n"
                 "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
     except Exception as e:
         answer = f"Fantasy error: {e}"
-    return {"sub_answers": state.get("sub_answers", []) + [answer]}
+    return {"final_answer": answer, "mode": "graph"}
 
 
-# -- Node 6: Predict -----------------------------------------------------------
+# ── Node 6: Predict ───────────────────────────────────────────────────────────
 _PREDICT_SYSTEM = f"""You are a cricket prediction analyst. Today is {TODAY}.
 Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-State your predicted winner and confidence % in the first sentence. Give exactly 2 reasons in plain sentences. End with one risk factor. Always pick a winner — never say "too early to tell"."""
+State predicted winner and confidence % in the first sentence. Give 2 reasons in plain sentences. End with one risk factor.
+Always pick a winner — never say "too early to tell". Use Cricsheet data below — it is real, trust it."""
 
 
 def predict_node(state: CricketState) -> dict:
-    cricsheet = state["rag_context"].get("cricsheet_data", "")
+    data_block = _cricsheet(state)
     try:
         resp = _llm(0.4).invoke([
             SystemMessage(content=_PREDICT_SYSTEM),
             HumanMessage(content=(
-                f"Prediction: {state['prompt']}\n\n"
-                f"--- CRICSHEET DATA ---\n{cricsheet or 'No data'}\n--- END ---\n\n"
-                "Plain English, max 80 words, no tables or lists. Pick a winner with confidence %."
+                f"Prediction: {state['prompt']}\n\n{data_block}\n\n"
+                "Plain English, max 80 words. Pick a winner with confidence %."
             )),
         ])
         answer = resp.content
     except Exception as e:
         answer = f"Prediction error: {e}"
-    return {"sub_answers": state.get("sub_answers", []) + [answer]}
+    return {"final_answer": answer, "mode": "graph"}
 
 
-# -- Node 7: General -----------------------------------------------------------
+# ── Node 7: General ───────────────────────────────────────────────────────────
 _GENERAL_SYSTEM = f"""You are a sharp cricket analyst. Today is {TODAY}.
 Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no markdown headers.
-Start with the direct answer in the first sentence. Back it with one key stat. Give a brief context sentence if needed. Nothing else."""
+Start with the direct answer in the first sentence. Back it with one key stat or fact. Nothing else.
+If Cricsheet data is provided below, it is real ball-by-ball data — use it and trust it over training knowledge."""
 
 
 def general_node(state: CricketState) -> dict:
-    cricsheet = state["rag_context"].get("cricsheet_data", "")
+    data_block = _cricsheet(state)
     try:
         resp = _llm(0.3).invoke([
             SystemMessage(content=_GENERAL_SYSTEM),
             HumanMessage(content=(
                 f"Question: {state['prompt']}\n\n"
-                + (f"--- CRICSHEET DATA ---\n{cricsheet}\n--- END ---\n\n" if cricsheet else "")
+                + (data_block + "\n\n" if data_block else "")
                 + "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
     except Exception as e:
         answer = f"General error: {e}"
-    return {"sub_answers": state.get("sub_answers", []) + [answer]}
+    return {"final_answer": answer, "mode": "graph"}
 
 
-# -- Node 8: Non-Cricket -------------------------------------------------------
+# ── Node 8: Non-Cricket ───────────────────────────────────────────────────────
 def non_cricket_node(state: CricketState) -> dict:
     return {
         "final_answer": (
@@ -196,46 +247,25 @@ def non_cricket_node(state: CricketState) -> dict:
             "Try asking about player stats, match predictions, fantasy XI picks, "
             "head-to-head comparisons, or tournament analysis."
         ),
-        "sub_answers": [],
+        "mode": "graph",
     }
 
 
-# -- Node 9: Synthesizer -------------------------------------------------------
-_SYNTH_SYSTEM = """You are a cricket content editor. Merge the sections into ONE response.
-Plain conversational English only. Max 80 words. No tables, no bullet lists, no markdown headers.
-Keep only the most important stats and the final verdict. Remove all duplicates.
-"""
-
-
-def synthesizer_node(state: CricketState) -> dict:
-    sub_answers = state.get("sub_answers", [])
-    if not sub_answers:
-        return {"final_answer": "No analysis generated.", "mode": "graph"}
-    if len(sub_answers) == 1:
-        return {"final_answer": sub_answers[0], "mode": "graph"}
-    combined = "\n\n---\n\n".join(sub_answers)
-    try:
-        resp = _llm(0.2).invoke([
-            SystemMessage(content=_SYNTH_SYSTEM),
-            HumanMessage(content=f"Merge into one response under 200 words:\n\n{combined}"),
-        ])
-        return {"final_answer": resp.content, "mode": "graph"}
-    except Exception:
-        return {"final_answer": combined, "mode": "graph"}
-
-
-# -- Edge routing --------------------------------------------------------------
+# ── Edge routing ──────────────────────────────────────────────────────────────
 def route_after_intent(state: CricketState) -> str:
-    return "rag_enrichment" if state["is_cricket"] else "non_cricket"
+    return "rag_enrichment" if state.get("is_cricket", True) else "non_cricket"
 
 
 def route_after_rag(state: CricketState) -> str:
-    return {"stats": "stats", "compare": "compare", "fantasy": "fantasy", "predict": "predict"}.get(
-        state.get("intent", "general"), "general"
-    )
+    return {
+        "stats": "stats",
+        "compare": "compare",
+        "fantasy": "fantasy",
+        "predict": "predict",
+    }.get(state.get("intent", "general"), "general")
 
 
-# -- Build graph ---------------------------------------------------------------
+# ── Build graph ───────────────────────────────────────────────────────────────
 _GRAPH = None
 
 
@@ -247,39 +277,41 @@ def get_graph():
         return None
     try:
         g = StateGraph(CricketState)
-        g.add_node("intent_router", intent_router_node)
-        g.add_node("rag_enrichment", rag_enrichment_node)
-        g.add_node("stats", stats_node)
-        g.add_node("compare", compare_node)
-        g.add_node("fantasy", fantasy_node)
-        g.add_node("predict", predict_node)
-        g.add_node("general", general_node)
-        g.add_node("non_cricket", non_cricket_node)
-        g.add_node("synthesizer", synthesizer_node)
+        g.add_node("intent_router",   intent_router_node)
+        g.add_node("rag_enrichment",  rag_enrichment_node)
+        g.add_node("stats",           stats_node)
+        g.add_node("compare",         compare_node)
+        g.add_node("fantasy",         fantasy_node)
+        g.add_node("predict",         predict_node)
+        g.add_node("general",         general_node)
+        g.add_node("non_cricket",     non_cricket_node)
+
         g.set_entry_point("intent_router")
         g.add_conditional_edges("intent_router", route_after_intent, {
             "rag_enrichment": "rag_enrichment",
-            "non_cricket": "non_cricket",
+            "non_cricket":    "non_cricket",
         })
         g.add_conditional_edges("rag_enrichment", route_after_rag, {
-            "stats": "stats",
+            "stats":   "stats",
             "compare": "compare",
             "fantasy": "fantasy",
             "predict": "predict",
             "general": "general",
         })
-        for node in ["stats", "compare", "fantasy", "predict", "general"]:
-            g.add_edge(node, "synthesizer")
-        g.add_edge("synthesizer", END)
-        g.add_edge("non_cricket", END)
+        # Each specialist node writes final_answer and goes straight to END
+        # (no synthesizer — only one node runs per query, merging is wasteful)
+        for node in ["stats", "compare", "fantasy", "predict", "general", "non_cricket"]:
+            g.add_edge(node, END)
+
         _GRAPH = g.compile()
+        log.info("LangGraph compiled: 8 nodes (intent_router→rag→specialist→END)")
         return _GRAPH
     except Exception as e:
-        log.error(f"Failed to build LangGraph: {e}")
+        log.error("Failed to build LangGraph: %s", e)
         return None
 
 
-# -- Public entry point --------------------------------------------------------
+# ── Public entry point ─────────────────────────────────────────────────────────
 async def run_graph(prompt: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Run the LangGraph pipeline. Falls back to direct LLM if graph unavailable."""
     ctx = context or {}
@@ -288,48 +320,45 @@ async def run_graph(prompt: str, context: Dict[str, Any] | None = None) -> Dict[
     if graph is not None:
         try:
             initial_state: CricketState = {
-                "prompt": prompt,
-                "intent": "general",
-                "is_cricket": True,
-                "players": [],
-                "rag_context": ctx,
-                "sub_answers": [],
+                "prompt":       prompt,
+                "intent":       "general",
+                "is_cricket":   True,
+                "players":      [],
+                "rag_context":  ctx,
                 "final_answer": "",
-                "mode": "graph",
+                "mode":         "graph",
             }
             result = await graph.ainvoke(initial_state)
             return {
-                "answer": result.get("final_answer", ""),
-                "intent": result.get("intent", "general"),
+                "answer":  result.get("final_answer", ""),
+                "intent":  result.get("intent", "general"),
                 "players": result.get("players", []),
-                "mode": result.get("mode", "graph"),
+                "mode":    result.get("mode", "graph"),
             }
         except Exception as e:
-            log.error(f"LangGraph pipeline error: {e}")
+            log.error("LangGraph pipeline error: %s", e)
 
-    # Direct LLM fallback
+    # ── Direct LLM fallback (no LangGraph) ───────────────────────────────────
     try:
         enriched = build_rag_context(prompt, ctx)
-        cricsheet = enriched.get("cricsheet_data", "")
+        data_block = ""
+        if enriched.get("cricsheet_data"):
+            data_block = f"--- CRICSHEET BALL-BY-BALL DATA ---\n{enriched['cricsheet_data']}\n--- END ---\n\n"
         resp = _llm(0.3).invoke([
             SystemMessage(content=_GENERAL_SYSTEM),
-            HumanMessage(content=(
-                f"Question: {prompt}\n\n"
-                + (f"--- CRICSHEET DATA ---\n{cricsheet}\n--- END ---\n\n" if cricsheet else "")
-                + "Plain English, max 80 words, no tables or lists."
-            )),
+            HumanMessage(content=f"Question: {prompt}\n\n{data_block}Plain English, max 80 words, no tables."),
         ])
         return {
-            "answer": resp.content,
-            "intent": "general",
+            "answer":  resp.content,
+            "intent":  "general",
             "players": detect_players_in_prompt(prompt),
-            "mode": "fallback",
+            "mode":    "fallback",
         }
     except Exception as e:
-        log.error(f"Direct LLM fallback error: {e}")
+        log.error("Direct LLM fallback error: %s", e)
         return {
-            "answer": f"Sorry, I encountered an error: {e}",
-            "intent": "general",
+            "answer":  f"Sorry, I encountered an error: {e}",
+            "intent":  "general",
             "players": [],
-            "mode": "error",
+            "mode":    "error",
         }
