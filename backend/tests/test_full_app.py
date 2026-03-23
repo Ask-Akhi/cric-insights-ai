@@ -229,3 +229,83 @@ def test_manifest_json():
 
 def test_sw_js():
     assert client.get("/sw.js").status_code in (200, 404)
+
+
+# ── 10. Deployment config sanity (catches railway.toml / Dockerfile bugs) ─────
+
+import tomllib, re
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[2]  # backend/tests/../../  == repo root
+
+def test_railway_toml_no_startcommand():
+    """startCommand overrides Dockerfile CMD — npm doesn't exist in python:3.12-slim."""
+    railway = ROOT_DIR / "railway.toml"
+    raw = railway.read_text(encoding="utf-8")
+    # Strip // comments (VS Code filepath annotations) before parsing TOML
+    cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("//"))
+    cfg = tomllib.loads(cleaned)
+    deploy = cfg.get("deploy", {})
+    assert "startCommand" not in deploy, (
+        f"railway.toml has startCommand='{deploy.get('startCommand')}' "
+        "— this overrides Dockerfile CMD. The final image is python:3.12-slim, "
+        "npm/node don't exist there."
+    )
+
+def test_railway_toml_builder_is_dockerfile():
+    railway = ROOT_DIR / "railway.toml"
+    raw = railway.read_text(encoding="utf-8")
+    cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("//"))
+    cfg = tomllib.loads(cleaned)
+    assert cfg.get("build", {}).get("builder", "").lower() == "dockerfile"
+
+def test_railway_toml_healthcheck_path():
+    railway = ROOT_DIR / "railway.toml"
+    raw = railway.read_text(encoding="utf-8")
+    cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("//"))
+    cfg = tomllib.loads(cleaned)
+    assert cfg.get("deploy", {}).get("healthcheckPath") == "/api/health"
+
+def test_dockerfile_cmd_uses_uvicorn():
+    """Dockerfile CMD must be uvicorn, not npm or node."""
+    dockerfile = (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
+    cmd_lines = [l.strip() for l in dockerfile.splitlines() if l.strip().startswith("CMD")]
+    assert cmd_lines, "No CMD found in Dockerfile"
+    last_cmd = cmd_lines[-1]
+    assert "uvicorn" in last_cmd, f"CMD doesn't use uvicorn: {last_cmd}"
+    assert "npm" not in last_cmd, f"CMD uses npm (no npm in python:3.12-slim): {last_cmd}"
+
+def test_dockerfile_cmd_binds_all_interfaces():
+    """CMD must bind to 0.0.0.0, not 127.0.0.1 (localhost unreachable in Railway)."""
+    dockerfile = (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
+    cmd_lines = [l.strip() for l in dockerfile.splitlines() if l.strip().startswith("CMD")]
+    assert cmd_lines
+    last_cmd = cmd_lines[-1]
+    assert "0.0.0.0" in last_cmd, f"CMD binds to wrong interface: {last_cmd}"
+
+def test_dockerfile_final_stage_is_python():
+    """Final FROM must be python — npm doesn't exist in a python image."""
+    dockerfile = (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
+    from_lines = [
+        l.strip() for l in dockerfile.splitlines()
+        if l.strip().upper().startswith("FROM") and " AS " not in l.upper()
+    ]
+    assert from_lines, "No final FROM stage found"
+    assert "python" in from_lines[-1].lower(), (
+        f"Final stage is not python: {from_lines[-1]}"
+    )
+
+def test_requirements_no_pytest_in_prod():
+    """pytest must not be in prod requirements.txt — wastes image space."""
+    reqs = (ROOT_DIR / "backend" / "requirements.txt").read_text(encoding="utf-8").lower()
+    assert not re.search(r"^pytest(\s|=|$)", reqs, re.MULTILINE), (
+        "pytest found in backend/requirements.txt — move it to requirements-dev.txt"
+    )
+
+def test_requirements_no_pyarrow_pinned_high():
+    """pyarrow>=18 with polars causes OOM at import on 512 MB Railway containers."""
+    reqs = (ROOT_DIR / "backend" / "requirements.txt").read_text(encoding="utf-8").lower()
+    match = re.search(r"pyarrow==(\d+)", reqs)
+    if match:
+        major = int(match.group(1))
+        assert major < 18, f"pyarrow=={major} causes OOM with polars on Railway Hobby (512 MB)"

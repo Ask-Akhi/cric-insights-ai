@@ -34,9 +34,7 @@ _FALLBACK = (
 @router.post("", response_model=AskResponse)
 @router.post("/", response_model=AskResponse)
 async def ask(req: AskRequest):
-    ctx = req.context or {}
-
-    # ── Grounded path: Google Search grounding, bypass graph ────────────────
+    ctx = req.context or {}    # ── Grounded path: Google Search grounding, bypass graph ────────────────
     if req.grounded:
         enriched = build_rag_context(req.prompt, ctx)
         try:
@@ -44,7 +42,8 @@ async def ask(req: AskRequest):
         except ValueError as e:
             raise HTTPException(status_code=503, detail=str(e))
         if not answer or not answer.strip():
-            answer = _FALLBACK        return AskResponse(answer=answer, intent="general", players=[], mode="grounded")
+            answer = _FALLBACK
+        return AskResponse(answer=answer, intent="general", players=[], mode="grounded")
 
     # ── LangGraph multi-step pipeline ────────────────────────────────────────
     try:
