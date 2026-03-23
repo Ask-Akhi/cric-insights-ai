@@ -83,15 +83,14 @@ try:
     hc = deploy.get("healthcheckPath", "")
     check(
         "healthcheckPath = /api/health",
-        hc == "/api/health",
-        detail=f"healthcheckPath is '{hc}'"
+        hc == "/api/health",        detail=f"healthcheckPath is '{hc}'"
     )
 
     hct = deploy.get("healthcheckTimeout", 0)
     check(
-        f"healthcheckTimeout >= 120 (got {hct})",
-        hct >= 120,
-        detail="Too-short timeout kills a healthy container during lazy Cricsheet download",
+        f"healthcheckTimeout >= 300 (got {hct})",
+        hct >= 300,
+        detail="Cricsheet background download takes ~2-4 min — timeout must be > 300s",
         fatal=False
     )
 
@@ -223,19 +222,19 @@ except subprocess.TimeoutExpired:
 
 
 # ── 6. pytest gate ────────────────────────────────────────────────────────────
-# Run ONLY the pure file-read deployment config tests (no TestClient, no network).
-# These 8 tests read railway.toml / Dockerfile / requirements.txt from disk and
-# complete in ~2s with zero LangChain/Cricsheet imports.
-# The full integration suite (TestClient imports LangChain on module load →
-# can take 60-120s) belongs in CI only, not in the local pre-push gate.
-print("\n[6/6] pytest -- deployment config tests (file-read only, no network)")
+# Run ONLY the pure file-read deployment config tests from test_deploy_config.py.
+# That file has NO imports of backend.src.main / LangChain / Cricsheet, so it
+# collects and runs in ~0.1s with zero network calls.
+# Full integration tests (test_full_app.py imports LangChain on module load →
+# 60-120s) belong in CI only, not the local pre-push hook.
+print("\n[6/6] pytest -- deployment config tests (file-read only, ~0.1s)")
 try:
     result = subprocess.run(
         [python_exe, "-m", "pytest",
-         "backend/tests/test_full_app.py",
-         "-k", "railway or dockerfile or requirements_no",
+         "backend/tests/test_deploy_config.py",
          "--tb=short", "-q", "--no-header",
-         ],        cwd=str(ROOT),
+         ],
+        cwd=str(ROOT),
         capture_output=True, timeout=15,
         encoding="utf-8", errors="replace",
         env={**os.environ, "PYTHONPATH": str(ROOT)}
@@ -248,7 +247,7 @@ try:
         summary = next((l for l in reversed(lines) if "passed" in l or "no tests" in l), "ok")
         check(f"pytest gate ({summary})", True)
 except subprocess.TimeoutExpired:
-    check("pytest gate (timeout)", False, detail="Tests hung for >15s — check test_deploy_config.py imports")
+    check("pytest gate (timeout)", False, detail="Tests hung >15s — check test_deploy_config.py has no heavy imports")
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────

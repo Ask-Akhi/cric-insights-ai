@@ -25,7 +25,9 @@ def test_railway_healthcheck_path():
     assert _railway().get("deploy", {}).get("healthcheckPath") == "/api/health"
 
 def test_railway_healthcheck_timeout():
-    assert _railway().get("deploy", {}).get("healthcheckTimeout", 0) >= 120
+    # Cricsheet background download takes ~2-4 min — need at least 300s
+    assert _railway().get("deploy", {}).get("healthcheckTimeout", 0) >= 300, \
+        "healthcheckTimeout must be >= 300s — Cricsheet download takes ~2-4 min on Railway"
 
 def test_dockerfile_cmd_uvicorn():
     cmds = [l.strip() for l in _dockerfile().splitlines() if l.strip().startswith("CMD")]

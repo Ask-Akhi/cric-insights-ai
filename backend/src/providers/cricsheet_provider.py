@@ -1,6 +1,8 @@
 import os
 import logging
 import threading
+import subprocess
+import sys
 from typing import Iterable, List, Dict
 import polars as pl
 
@@ -15,6 +17,9 @@ PARQUET_DIR = os.path.join(DATA_DIR, "parquet")
 
 # Global lock so only one thread downloads/parses at a time
 _DOWNLOAD_LOCK = threading.Lock()
+# Set to True once a background download thread has been fired — prevents
+# duplicate threads being spawned on concurrent first requests.
+_DOWNLOAD_STARTED = False
 
 # Columns that must exist in every loaded LazyFrame
 REQUIRED_COLS = [
@@ -41,32 +46,43 @@ class CricsheetProvider(BaseDataProvider):
         return sorted(paths)
 
     def _ensure_data(self):
-        """If no parquet files exist, trigger a background download (male only)."""
-        paths = self._collect_parquet_paths()
-        if paths:
-            return  # already have data
+        """Fire a one-shot daemon thread to download Cricsheet data if missing.
+
+        Returns immediately — the health endpoint is NEVER blocked.
+        The download runs in the background; the first few API calls that need
+        data will get empty results until it completes (~2-4 min on Railway).
+        """
+        global _DOWNLOAD_STARTED
+        if self._collect_parquet_paths():
+            return  # already have data — fast path, no lock needed
 
         with _DOWNLOAD_LOCK:
-            # Re-check inside lock
-            if self._collect_parquet_paths():
-                return
+            if self._collect_parquet_paths() or _DOWNLOAD_STARTED:
+                return  # another thread beat us here
+            _DOWNLOAD_STARTED = True
 
+        def _run_download():
             log.info("📥 No Cricsheet data found — downloading male dataset in background …")
             try:
-                import subprocess, sys
+                repo_root = os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
+                )
                 result = subprocess.run(
                     [sys.executable, "-m",
                      "backend.src.scripts.parse_cricsheet",
                      "--gender", "male", "--download"],
                     capture_output=True, text=True, timeout=600,
-                    cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+                    cwd=repo_root,
                 )
                 if result.returncode == 0:
-                    log.info("✅ Cricsheet download complete")
+                    log.info("✅ Cricsheet download complete — data now available")
                 else:
-                    log.warning(f"⚠️  Cricsheet download failed:\n{result.stderr[-500:]}")
+                    log.warning("⚠️  Cricsheet download failed:\n%s", result.stderr[-500:])
             except Exception as e:
-                log.warning(f"⚠️  Cricsheet download error: {e}")
+                log.warning("⚠️  Cricsheet download error: %s", e)
+
+        t = threading.Thread(target=_run_download, daemon=True, name="cricsheet-download")
+        t.start()
 
     def load(self):
         os.makedirs(RAW_DIR, exist_ok=True)
