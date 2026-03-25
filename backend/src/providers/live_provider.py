@@ -364,7 +364,13 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
                         for tname in [team1, team2]:
                             if tname and f"{tname} won" in status_str:
                                 winner = tname
-                                break
+                                break                        # startDate is a Unix ms timestamp — convert to YYYY-MM-DD
+                        raw_ts = mi.get("startDate", "")
+                        try:
+                            import datetime as _dt
+                            match_date = _dt.datetime.utcfromtimestamp(int(raw_ts) / 1000).strftime("%Y-%m-%d")
+                        except Exception:
+                            match_date = ""
 
                         matches.append(_match(
                             match_id=str(mi.get("matchId", "")),
@@ -374,7 +380,7 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
                             winner=winner,
                             status=status,
                             venue=mi.get("venueInfo", {}).get("ground", ""),
-                            date=str(mi.get("startDate", ""))[:10],
+                            date=match_date,
                             format=fmt,
                             competition=series_name,
                         ))

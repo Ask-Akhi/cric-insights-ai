@@ -67,12 +67,13 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
     load(true)
     return () => { if (intervalId) clearInterval(intervalId) }
   }, [apiBase, format])
-
-  // Format a short date string: "12 Mar 2024" → "Mar 2024"
+  // Format a short date string: "2024-03-12" → "Mar 2024". Hides raw timestamps.
   const shortDate = (d?: string) => {
     if (!d) return ''
+    // Reject bare numeric strings (unix timestamps that slipped through)
+    if (/^\d+$/.test(d)) return ''
     const dt = new Date(d)
-    if (isNaN(dt.getTime())) return d
+    if (isNaN(dt.getTime())) return ''
     return dt.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
   }
 
@@ -89,18 +90,14 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
             </span>
           ) : (
             <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-          )}
-          <span className={`text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-red-400' : 'text-slate-500'}`}>
-            {isLive ? source : 'Cricsheet'}
+          )}          <span className={`text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-red-400' : 'text-slate-500'}`}>
+            {isLive ? 'Live' : 'Recent'}
           </span>
           <span className="text-[10px] text-orange-400 font-semibold ml-1">{format}</span>
           {!isLive && latestDate && (
             <span className="text-[9px] text-slate-700 ml-1 hidden sm:inline">
               · up to {latestDate.slice(0, 7)}
             </span>
-          )}
-          {isLive && (
-            <span className="text-[9px] text-green-600 ml-1 hidden sm:inline">· live</span>
           )}
         </div>
         <div className="w-px h-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }} />
@@ -177,10 +174,8 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
                         <span className="text-slate-700 text-[9px]">·</span>
                         <span className="text-slate-600 text-[10px] max-w-[100px] truncate">{m.venue}</span>
                       </>
-                    )}
-
-                    {/* Date */}
-                    {m.date && (
+                    )}                    {/* Date — only when parseable */}
+                    {shortDate(m.date) && (
                       <span className="text-slate-700 text-[10px]">{shortDate(m.date)}</span>
                     )}
 
