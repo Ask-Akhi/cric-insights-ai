@@ -25,34 +25,33 @@ const INTENT_CONFIG: Record<AskIntent, { label: string; color: string; bg: strin
 
 // ── Thinking steps shown during graph execution ────────────────────────────
 const THINKING_STEPS = [
-  { ms: 0,    text: '🧠 Routing question...'             },
-  { ms: 800,  text: '🔍 Fetching Cricsheet stats...'     },
-  { ms: 2000, text: '⚙️  Running analysis node...'       },
-  { ms: 4500, text: '✍️  Generating answer...'           },
-  { ms: 8000, text: '🔄 Synthesizing response...'        },
+  { ms: 0,    text: '🧠 Routing question...'         },
+  { ms: 800,  text: '🔍 Fetching Cricsheet stats...' },
+  { ms: 2000, text: '⚙️  Running analysis node...'   },
+  { ms: 4500, text: '✍️  Generating answer...'       },
+  { ms: 8000, text: '🔄 Synthesizing response...'    },
 ]
 
 function ThinkingSteps({ elapsed }: { elapsed: number }) {
   const visible = THINKING_STEPS.filter(s => elapsed >= s.ms)
+  const sec = (elapsed / 1000).toFixed(1)
   return (
     <div className="space-y-2 py-1">
       {visible.map((s, i) => (
-        <motion.div
-          key={i}
-          initial={{ opacity: 0, x: -8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.3 }}
-          className="flex items-center gap-2 text-xs"
-        >
+        <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3 }} className="flex items-center gap-2 text-xs">
           <span className="text-slate-400">{s.text}</span>
           {i === visible.length - 1 && (
-            <span className="inline-flex gap-0.5 ml-1">
-              {[0,1,2].map(d => (
-                <motion.span key={d} className="w-1 h-1 rounded-full bg-orange-400"
-                  animate={{ opacity: [0.3,1,0.3] }}
-                  transition={{ duration: 0.9, delay: d * 0.2, repeat: Infinity }} />
-              ))}
-            </span>
+            <>
+              <span className="inline-flex gap-0.5 ml-1">
+                {[0,1,2].map(d => (
+                  <motion.span key={d} className="w-1 h-1 rounded-full bg-orange-400"
+                    animate={{ opacity: [0.3,1,0.3] }}
+                    transition={{ duration: 0.9, delay: d * 0.2, repeat: Infinity }} />
+                ))}
+              </span>
+              <span className="ml-auto text-[10px] text-slate-600 font-mono tabular-nums">{sec}s</span>
+            </>
           )}
         </motion.div>
       ))}

@@ -32,9 +32,9 @@ interface Props {
   onLiveChange?: (isLive: boolean) => void
 }
 
-export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props) {
-  const [matches, setMatches] = useState<Match[]>([])
+export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props) {  const [matches, setMatches] = useState<Match[]>([])
   const [latestDate, setLatestDate] = useState<string>('')
+  const [dataNote, setDataNote] = useState<string>('')
   const [isLive, setIsLive] = useState(false)
   const [source, setSource] = useState('cricsheet')
   const [loading, setLoading] = useState(true)
@@ -45,9 +45,11 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
     setError(false)
     const url = `${apiBase}/api/matches/recent?format=${encodeURIComponent(format)}&limit=12`
     fetch(url)
-      .then(r => r.json())      .then((data: ApiResponse) => {
+      .then(r => r.json())
+      .then((data: ApiResponse) => {
         setMatches(Array.isArray(data?.matches) ? data.matches : [])
         setLatestDate(data?.latest_date ?? '')
+        setDataNote(data?.data_note ?? '')
         const live = data?.live ?? false
         setIsLive(live)
         setSource(data?.source ?? 'cricsheet')
@@ -106,15 +108,17 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
                   style={{ background: 'rgba(255,255,255,0.04)' }} />
               ))}
             </div>
-          )}
-
-          {error && (
-            <span className="text-[10px] text-slate-600">Could not load recent matches</span>
+          )}          {error && (
+            <span className="text-[10px] text-slate-600 italic">⚠ Could not load recent matches — backend may be starting up</span>
           )}
 
           {isEmpty && (
-            <span className="text-[10px] text-slate-600">No recent {format} matches in dataset</span>
-          )}          {!loading && !error && matches.length > 0 && (
+            <span className="text-[10px] text-slate-500 italic">
+              {dataNote
+                ? `⏳ ${dataNote}`
+                : `No recent ${format} matches in dataset — data loads in background on first deploy`}
+            </span>
+          )}{!loading && !error && matches.length > 0 && (
             <div className="flex gap-3 pb-0.5" style={{ minWidth: 'max-content' }}>
               {matches.map((m, i) => {
                 const winner = m.winner || ''

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import AskAI from './AskAI'
 import BatterStats from './BatterStats'
@@ -58,13 +58,29 @@ const STATS = [
   { value: 'AI',    label: 'Web Search',        icon: '🌐' },
 ]
 
+const CURRENT_YEAR = new Date().getFullYear()
+
 export default function App() {
   const [active, setActive]         = useState('ask')
   const [grounded, setGrounded]     = useState(true)
   const [format, setFormat]         = useState('T20')
   const [menuOpen, setMenuOpen]     = useState(false)
-  const [tickerLive, setTickerLive] = useState(false)   // true only when live provider (CricAPI etc.) is active
+  const [tickerLive, setTickerLive] = useState(false)
+  const [backendOk, setBackendOk]   = useState<boolean | null>(null) // null = checking
   const { left, increment }         = useQuestionCounter()
+
+  // ── Real health check ────────────────────────────────────────
+  const checkHealth = useCallback(() => {
+    fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5000) })
+      .then(r => setBackendOk(r.ok))
+      .catch(() => setBackendOk(false))
+  }, [])
+
+  useEffect(() => {
+    checkHealth()
+    const id = setInterval(checkHealth, 30_000)
+    return () => clearInterval(id)
+  }, [checkHealth])
 
   const activeTool = TOOLS.find(t => t.id === active)!
 
@@ -177,9 +193,8 @@ export default function App() {
           {/* Editorial headline */}
           <div className="animate-slide-up">
             <div className="inline-flex items-center gap-2 mb-4 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
-              style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#ff6b35' }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-              IPL 2026 · AI Insights
+              style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#ff6b35' }}>              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+              IPL {CURRENT_YEAR} · AI Insights
             </div>
             <h2 className="text-3xl md:text-5xl font-bold text-white leading-[1.1] tracking-tight mb-3"
               style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
@@ -194,13 +209,11 @@ export default function App() {
               all in one place.
             </p>
           </div>
-        </div>
-
-        {/* Stats strip — full width below the headline */}
+        </div>        {/* Stats strip — full width below the headline */}
         <div className="border-t border-white/[0.05]" style={{ background: 'rgba(255,255,255,0.02)' }}>
-          <div className="max-w-screen-xl mx-auto px-4 py-3 md:py-4 grid grid-cols-4 gap-0 animate-fade-in divide-x divide-white/[0.05]">
+          <div className="max-w-screen-xl mx-auto px-4 py-3 md:py-4 grid grid-cols-4 gap-0 animate-fade-in">
             {STATS.map((s, i) => (
-              <div key={i} className="flex items-center gap-2 md:gap-3 min-w-0 px-3 md:px-5 first:pl-0">
+              <div key={i} className={`flex items-center gap-2 md:gap-3 min-w-0 py-1 px-3 md:px-5 ${i > 0 ? 'border-l border-white/[0.05]' : ''}`}>
                 <span className="text-base md:text-xl flex-shrink-0 opacity-80">{s.icon}</span>
                 <div className="min-w-0">
                   <div className="text-xs md:text-sm font-bold text-white leading-none" style={{ fontFamily: '"Playfair Display", serif' }}>{s.value}</div>
@@ -231,14 +244,23 @@ export default function App() {
                 <span className="text-[10px] text-slate-600 mt-1 leading-none">{t.desc}</span>
               </span>
             </motion.button>
-          ))}
-
-          {/* Status panel */}
+          ))}          {/* Status panel */}
           <div className="mt-4 glass p-4 space-y-3">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-              <span className="text-xs text-slate-300 font-medium">System Online</span>
-            </div>            <div className="section-divider" />
+              {backendOk === null ? (
+                <span className="w-2 h-2 rounded-full bg-slate-500 animate-pulse flex-shrink-0" />
+              ) : backendOk ? (
+                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse flex-shrink-0" />
+              )}
+              <span className="text-xs text-slate-300 font-medium">
+                {backendOk === null ? 'Checking…' : backendOk ? 'System Online' : 'Backend Offline'}
+              </span>
+              {!backendOk && backendOk !== null && (
+                <button onClick={checkHealth} className="ml-auto text-[9px] text-slate-500 hover:text-slate-300 transition-colors">retry</button>
+              )}
+            </div><div className="section-divider" />
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] text-slate-600 uppercase tracking-wide">Format</span>
@@ -293,9 +315,7 @@ export default function App() {
             </motion.div>
           </AnimatePresence>
         </main>
-      </div>
-
-      {/* ── Footer ───────────────────────────────────────────── */}
+      </div>      {/* ── Footer ───────────────────────────────────────────── */}
       <footer className="relative z-10 mt-16 border-t border-white/[0.05]" style={{ background: 'rgba(5,7,15,0.6)' }}>
         <div className="max-w-screen-xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -304,10 +324,20 @@ export default function App() {
             <span className="text-slate-700 text-sm">·</span>
             <span className="text-xs text-slate-600">AI - CricAnalyst</span>
           </div>
-          <div className="flex items-center gap-4 text-[11px] text-slate-700">
-            <span>Powered by AI · Cricsheet Data</span>
+          <div className="flex items-center flex-wrap justify-center gap-3 text-[11px] text-slate-700">
+            <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer"
+              className="hover:text-orange-400 transition-colors">
+              📊 Cricsheet Data
+            </a>
             <span>·</span>
-            <span>© 2026</span>
+            <span>Powered by Gemini AI + LangGraph</span>
+            <span>·</span>
+            <a href="https://github.com/Ask-Akhi/cric-insights-ai" target="_blank" rel="noopener noreferrer"
+              className="hover:text-slate-400 transition-colors">
+              GitHub
+            </a>
+            <span>·</span>
+            <span>© {CURRENT_YEAR}</span>
           </div>
         </div>
       </footer>
