@@ -7,7 +7,7 @@ Priority order (first key found wins):
                           Sign up: https://rapidapi.com/cricketapilive/api/cricbuzz-cricket
   2. SPORTMONKS_KEY     → Sportmonks.com (paid, most comprehensive)
   3. CRICAPI_KEY        → CricAPI.com (free 100 req/day — basic)
-  4. <none>             → falls back to Cricsheet static data
+  4. <none>             → free CricketData.org API (no key, 100 req/day) → Cricsheet static
 
 Set the key as a Railway environment variable. No code changes needed to switch providers.
 """
@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 CRICAPI_KEY    = os.getenv("CRICAPI_KEY", "")
 SPORTMONKS_KEY = os.getenv("SPORTMONKS_KEY", "")
 RAPIDAPI_KEY   = os.getenv("RAPIDAPI_KEY", "")
+# Free no-auth API from cricketdata.org — used when no paid key is set
+CRICDATA_API_URL = "https://api.cricketdata.org/api/v1"
 
 # Simple in-process cache so we don't burn free-tier quota on every ticker refresh
 _CACHE: dict[str, tuple[float, Any]] = {}
@@ -403,36 +405,124 @@ def _fmt_cricbuzz(match_format: str, series_name: str = "") -> str:
     return "T20"
 
 
+# ── CricketData.org — FREE, no API key required ────────────────────────────────
+# Docs: https://cricketdata.org/  |  100 req/day on free tier, no auth needed
+# Endpoint: GET https://api.cricketdata.org/api/v1/currentMatches?apikey=nokey
+
+def fetch_cricketdata_free(format_filter: str | None = None, limit: int = 12) -> list[dict]:
+    """
+    Fetch current + recent matches from cricketdata.org with NO API key.
+    Used as automatic fallback when no paid key is configured.
+    """
+    cache_key = f"cricdata_free_{format_filter}_{limit}"
+    cached = _cached(cache_key, ttl=180)  # 3 min cache — save quota
+    if cached is not None:
+        return cached
+
+    results: list[dict] = []
+    # Try current matches first, then recently completed
+    for endpoint in ["currentMatches", "matches"]:
+        if len(results) >= limit:
+            break
+        try:
+            r = httpx.get(
+                f"{CRICDATA_API_URL}/{endpoint}",
+                params={"apikey": "nokey", "offset": 0},
+                timeout=8,
+            )
+            if r.status_code in (401, 403):
+                # No-key access not allowed — skip silently
+                break
+            r.raise_for_status()
+            data = r.json()
+
+            for m in data.get("data", []):
+                match_type = m.get("matchType", "t20")
+                fmt = _fmt_cricapi(match_type)
+                if format_filter and fmt != format_filter:
+                    continue
+
+                scores = m.get("score", [])
+                score_str = "  ".join(
+                    f"{s.get('inning','').split(' Inning')[0]}: "
+                    f"{s.get('r',0)}/{s.get('w',0)} ({s.get('o',0)} ov)"
+                    for s in scores
+                ) if scores else ""
+
+                started = m.get("matchStarted", False)
+                ended = m.get("matchEnded", False)
+                if started and not ended:
+                    status = "live"
+                elif not started:
+                    status = "upcoming"
+                else:
+                    status = "recent"
+
+                results.append(_match(
+                    match_id=m.get("id", ""),
+                    team1=(m.get("teams") or [""])[0],
+                    team2=(m.get("teams") or ["", ""])[1] if len(m.get("teams") or []) > 1 else "",
+                    score=score_str,
+                    winner=m.get("matchWinner", ""),
+                    status=status,
+                    venue=m.get("venue", ""),
+                    date=m.get("date", ""),
+                    format=fmt,
+                    competition=m.get("name", ""),
+                ))
+                if len(results) >= limit:
+                    break
+
+        except Exception as e:
+            log.debug(f"CricketData.org ({endpoint}) fetch failed: {e}")
+
+    _store(cache_key, results)
+    if results:
+        log.info(f"CricketData.org: fetched {len(results)} matches (no key)")
+    return results
+
+
 # ── Public interface — auto-selects provider ───────────────────────────────────
 
 def get_live_source() -> str:
-    """Return which live provider is active, or 'cricsheet' if none configured."""
+    """Return which live provider is active."""
     if RAPIDAPI_KEY:
         return "rapidapi"      # Cricbuzz via RapidAPI — most reliable, 500 req/day free
     if SPORTMONKS_KEY:
         return "sportmonks"
     if CRICAPI_KEY:
         return "cricapi"
-    return "cricsheet"
+    return "free"              # CricketData.org no-key fallback
 
 
 def fetch_live_matches(format_filter: str | None = None, limit: int = 12) -> tuple[list[dict], str]:
     """
     Fetch live/recent matches from whichever provider is configured.
     Returns (matches, source_name).
+    Always tries the free no-key fallback last so the ticker is never empty.
     """
     source = get_live_source()
 
-    if source == "cricapi":
-        live = fetch_cricapi_live(format_filter)
-        if not live:
-            live = fetch_cricapi_recent(format_filter, limit)
-        return live[:limit], "cricapi"
+    if source == "rapidapi":
+        matches = fetch_cricbuzz_live(format_filter)[:limit]
+        if matches:
+            return matches, "Cricbuzz"
 
     if source == "sportmonks":
-        return fetch_sportmonks_live(format_filter)[:limit], "sportmonks"
+        matches = fetch_sportmonks_live(format_filter)[:limit]
+        if matches:
+            return matches, "Sportmonks"
 
-    if source == "rapidapi":
-        return fetch_cricbuzz_live(format_filter)[:limit], "rapidapi"
+    if source == "cricapi":
+        matches = fetch_cricapi_live(format_filter)
+        if not matches:
+            matches = fetch_cricapi_recent(format_filter, limit)
+        if matches:
+            return matches[:limit], "CricAPI"
 
-    return [], "cricsheet"  # caller falls back to Cricsheet
+    # Free fallback — always tried when no paid key is set or paid key returns nothing
+    matches = fetch_cricketdata_free(format_filter, limit)
+    if matches:
+        return matches, "CricketData"
+
+    return [], "cricsheet"  # caller falls back to Cricsheet static data

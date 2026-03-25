@@ -233,24 +233,24 @@ def recent_matches(
 ):
     """
     Return the most recent/live matches.
-    - If CRICAPI_KEY / SPORTMONKS_KEY / RAPIDAPI_KEY env var is set → uses that live API.
-    - Otherwise → falls back to Cricsheet static snapshot (up to Jan 2026).
-    Set one of those keys in Railway Variables to enable live data.
+    Priority:
+      1. RAPIDAPI_KEY / SPORTMONKS_KEY / CRICAPI_KEY env var → paid live API
+      2. CricketData.org free API (no key needed) → automatic fallback
+      3. Cricsheet static snapshot → last resort
+    Set RAPIDAPI_KEY in Railway Variables for the best live data (500 req/day free).
     """
-    source = get_live_source()
-
-    # ── Live API path ──────────────────────────────────────────────────────────
-    if source != "cricsheet":
-        live_matches, src = fetch_live_matches(format_filter=format, limit=limit)
-        if live_matches:
-            return {
-                "matches": live_matches,
-                "count": len(live_matches),
-                "source": src,
-                "live": True,
-                "data_note": f"Live data via {src}",
-            }
-        # Live API returned nothing (rate limit / error) — fall through to Cricsheet
+    # ── Always try live/free APIs first ───────────────────────────────────────
+    live_matches, src = fetch_live_matches(format_filter=format, limit=limit)
+    if live_matches:
+        is_live_src = src not in ("cricsheet",)
+        return {
+            "matches": live_matches,
+            "count": len(live_matches),
+            "source": src,
+            "live": is_live_src,
+            "data_note": f"Live data via {src}",
+            "latest_date": live_matches[0].get("date", "") if live_matches else "",
+        }
 
     # ── Cricsheet static fallback ──────────────────────────────────────────────
     provider = _get_provider()
@@ -271,7 +271,11 @@ def recent_matches(
     if not raw:
         return {
             "matches": [], "count": 0, "source": "cricsheet", "live": False,
-            "data_note": "No matches found for this format in the Cricsheet dataset.",
+            "data_note": (
+                "Cricsheet data is still loading in background (first deploy takes ~3 min). "
+                "For live scores, set RAPIDAPI_KEY in Railway Variables → "
+                "https://rapidapi.com/cricketapilive/api/cricbuzz-cricket"
+            ),
         }
 
     df = pl.DataFrame(raw)
@@ -321,7 +325,10 @@ def recent_matches(
         "count": len(results),
         "source": "cricsheet",
         "live": False,
-        "data_note": f"Cricsheet snapshot — latest match: {latest_date}. Set CRICAPI_KEY in Railway Variables for live data.",
+        "data_note": (
+            f"Cricsheet snapshot — latest match: {latest_date}. "
+            "Set RAPIDAPI_KEY in Railway Variables for live scores."
+        ),
         "latest_date": str(latest_date),
     }
 
