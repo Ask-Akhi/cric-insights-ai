@@ -1,40 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ToolShell from '../components/ToolShell'
 import PlayerCharts from '../components/PlayerCharts'
-import { callAsk, callPlayerStats, PlayerStats } from '../lib/api'
+import { callAsk, callPlayerStats, callPlayerSearch, PlayerStats } from '../lib/api'
 
 interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
-// Known player aliases — mirrors backend PLAYER_ALIASES for detection
-const KNOWN_PLAYERS: Record<string, string> = {
-  'rohit sharma': 'Rohit Sharma', 'virat kohli': 'Virat Kohli',
-  'ms dhoni': 'MS Dhoni', 'jasprit bumrah': 'Jasprit Bumrah',
-  'shubman gill': 'Shubman Gill', 'hardik pandya': 'Hardik Pandya',
-  'kl rahul': 'KL Rahul', 'ravindra jadeja': 'Ravindra Jadeja',
-  'ravichandran ashwin': 'Ravichandran Ashwin', 'suryakumar yadav': 'Suryakumar Yadav',
-  'sachin tendulkar': 'Sachin Tendulkar', 'yuvraj singh': 'Yuvraj Singh',
-  'steve smith': 'Steve Smith', 'david warner': 'David Warner',
-  'pat cummins': 'Pat Cummins', 'mitchell starc': 'Mitchell Starc',
-  'glen maxwell': 'Glenn Maxwell', 'glenn maxwell': 'Glenn Maxwell',
-  'travis head': 'Travis Head', 'marnus labuschagne': 'Marnus Labuschagne',
-  'joe root': 'Joe Root', 'ben stokes': 'Ben Stokes',
-  'jos buttler': 'Jos Buttler', 'jofra archer': 'Jofra Archer',
-  'harry brook': 'Harry Brook', 'babar azam': 'Babar Azam',
-  'shaheen afridi': 'Shaheen Afridi', 'mohammad rizwan': 'Mohammad Rizwan',
-  'kane williamson': 'Kane Williamson', 'trent boult': 'Trent Boult',
-  'tim southee': 'Tim Southee', 'ab de villiers': 'AB de Villiers',
-  'kagiso rabada': 'Kagiso Rabada', 'faf du plessis': 'Faf du Plessis',
-  'chris gayle': 'Chris Gayle', 'andre russell': 'Andre Russell',
-  'rashid khan': 'Rashid Khan', 'wanindu hasaranga': 'Wanindu Hasaranga',
-  'shakib al hasan': 'Shakib Al Hasan',
-}
-
-function detectPlayer(text: string): string | null {
-  const lower = text.toLowerCase()
-  for (const key of Object.keys(KNOWN_PLAYERS)) {
-    if (lower.includes(key)) return KNOWN_PLAYERS[key]
-  }
-  return null
+/** Debounce helper — returns a value that only updates after `delay` ms of quiet. */
+function useDebounced<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id)
+  }, [value, delay])
+  return debounced
 }
 
 const CHIP_CATEGORIES = [
@@ -92,32 +70,60 @@ export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Pr
   const [chartLoading, setChartLoading] = useState(false)
   const [chartPlayer, setChartPlayer] = useState<string | null>(null)
 
+  // ── Live player detection via backend API (debounced, no hardcoded list) ──
+  const debouncedQ = useDebounced(question, 400)
+  const lastDetectRef = useRef<string>('')
+
+  useEffect(() => {
+    if (debouncedQ.length < 4 || debouncedQ === lastDetectRef.current) return
+    lastDetectRef.current = debouncedQ
+    callPlayerSearch(apiBase, debouncedQ)
+      .then(players => {
+        if (players.length > 0 && debouncedQ === lastDetectRef.current) {
+          const name = players[0]
+          setChartPlayer(name)
+          setChartData(null)
+          setChartLoading(true)
+          callPlayerStats(apiBase, name, format)
+            .then(setChartData)
+            .catch(() => setChartData(null))
+            .finally(() => setChartLoading(false))
+        } else if (players.length === 0) {
+          // Clear side panel only if question changed enough to warrant it
+          setChartPlayer(null)
+          setChartData(null)
+        }
+      })
+      .catch(() => { /* silent — don't disrupt typing */ })
+  }, [debouncedQ, apiBase, format])
+
   const handleChip = (chip: string) => {
     setQuestion(chip.replace(/\{format\}/g, format))
   }
 
   const handleSubmit = async () => {
-    // Detect if a named player appears in the question — fetch charts in parallel
-    const detected = detectPlayer(question)
-    if (detected) {
-      setChartData(null)
-      setChartLoading(true)
-      setChartPlayer(detected)
-      callPlayerStats(apiBase, detected, format)
-        .then(setChartData)
-        .catch(() => setChartData(null))
-        .finally(() => setChartLoading(false))
-    } else {
-      setChartData(null)
-      setChartLoading(false)
-      setChartPlayer(null)
-    }
-
-    return callAsk(apiBase, {
+    // Use players list returned by the AI response to confirm/update chart player
+    const result = await callAsk(apiBase, {
       prompt: question,
       context: { format },
       grounded,
     })
+
+    // If the AI response identified player(s) and we haven't loaded charts yet, fetch now
+    if (result.players?.length > 0) {
+      const name = result.players[0]
+      if (name !== chartPlayer) {
+        setChartPlayer(name)
+        setChartData(null)
+        setChartLoading(true)
+        callPlayerStats(apiBase, name, format)
+          .then(setChartData)
+          .catch(() => setChartData(null))
+          .finally(() => setChartLoading(false))
+      }
+    }
+
+    return result
   }
 
   // Side panel shown when a player was detected

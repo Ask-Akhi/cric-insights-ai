@@ -9,44 +9,86 @@ interface Props { apiBase: string; format: string; grounded: boolean; onQuestion
 // ── Fantasy point model (Dream11-like) ───────────────────────────────────────
 // Batting: 1 pt/run, 4=1 bonus, 6=2 bonus, 50=8 bonus, 100=16 bonus, S/R bonus
 // Bowling: 25 pt/wkt, economy bonus, 3w=4, 4w=8, 5w=16
-// Applied to EXPECTED values from Cricsheet rolling averages
+//
+// Form weighting: recent 10 innings count 70%, career average 30%.
+// This prevents cold veterans outscoring hot in-form players.
 function calcFantasyScore(stats: PlayerStats): number {
   let pts = 0
   const bat = stats.batter
   const bowl = stats.bowler
 
   if (bat) {
-    const runsPerMatch = bat.total_runs / Math.max(bat.total_matches, 1)
+    // Career averages
+    const careerRPM = bat.total_runs / Math.max(bat.total_matches, 1)
     const ballsPerMatch = bat.total_balls / Math.max(bat.total_matches, 1)
     const sr = bat.strike_rate
 
+    // Recent form: last 10 entries from runs_per_match array (sorted oldest→newest by API)
+    const recent = bat.runs_per_match.slice(-10)
+    const recentRPM = recent.length > 0
+      ? recent.reduce((s, r) => s + r.runs, 0) / recent.length
+      : careerRPM
+
+    // Weighted expected runs per match (70% recent, 30% career)
+    const expectedRPM = recent.length >= 3
+      ? recentRPM * 0.7 + careerRPM * 0.3
+      : careerRPM  // not enough recent data — use career only
+
     // Run points
-    pts += runsPerMatch * 1
-    // 4s/6s bonus (proportional)
+    pts += expectedRPM * 1
+    // 4s/6s bonus (proportional to career rate — not enough recent granularity)
     pts += (bat.fours / Math.max(bat.total_matches, 1)) * 1
     pts += (bat.sixes / Math.max(bat.total_matches, 1)) * 2
-    // 50/100 bonus (estimated from average)
-    if (bat.average >= 50) pts += 16
-    else if (bat.average >= 25) pts += 8
+    // Milestone bonus estimated from weighted average
+    const weightedAvg = recent.length >= 3
+      ? recentRPM * 0.7 + bat.average * 0.3
+      : bat.average
+    if (weightedAvg >= 50) pts += 16
+    else if (weightedAvg >= 25) pts += 8
     // SR bonus
     if (sr >= 170) pts += 6
     else if (sr >= 150) pts += 4
     else if (sr >= 130) pts += 2
     else if (sr < 60 && ballsPerMatch > 4) pts -= 2
+
+    // Form streak bonus: last 3 matches all above career average → +3
+    if (recent.length >= 3 && recent.slice(-3).every(r => r.runs >= careerRPM)) pts += 3
   }
 
   if (bowl) {
-    const wktsPerMatch = bowl.total_wickets / Math.max(bowl.total_matches, 1)
+    // Career averages
+    const careerWPM = bowl.total_wickets / Math.max(bowl.total_matches, 1)
+
+    // Recent form: last 10 entries from wickets_per_match
+    const recent = bowl.wickets_per_match.slice(-10)
+    const recentWPM = recent.length > 0
+      ? recent.reduce((s, r) => s + r.wickets, 0) / recent.length
+      : careerWPM
+    const recentEcon = recent.length > 0
+      ? recent.reduce((s, r) => s + r.economy, 0) / recent.length
+      : bowl.economy
+
+    // Weighted expected wickets per match (70% recent, 30% career)
+    const expectedWPM = recent.length >= 3
+      ? recentWPM * 0.7 + careerWPM * 0.3
+      : careerWPM
+    const expectedEcon = recent.length >= 3
+      ? recentEcon * 0.7 + bowl.economy * 0.3
+      : bowl.economy
+
     // Wicket points
-    pts += wktsPerMatch * 25
-    // Economy bonus
-    if (bowl.economy < 6) pts += 6
-    else if (bowl.economy < 7) pts += 4
-    else if (bowl.economy < 8) pts += 2
-    else if (bowl.economy > 10) pts -= 2
+    pts += expectedWPM * 25
+    // Economy bonus (on weighted recent economy)
+    if (expectedEcon < 6) pts += 6
+    else if (expectedEcon < 7) pts += 4
+    else if (expectedEcon < 8) pts += 2
+    else if (expectedEcon > 10) pts -= 2
     // Multi-wicket haul bonus
-    if (wktsPerMatch >= 3) pts += 8
-    else if (wktsPerMatch >= 2) pts += 4
+    if (expectedWPM >= 3) pts += 8
+    else if (expectedWPM >= 2) pts += 4
+
+    // Form streak bonus: last 3 matches all ≥ 1 wicket → +2
+    if (recent.length >= 3 && recent.slice(-3).every(r => r.wickets >= 1)) pts += 2
   }
 
   return Math.round(pts * 10) / 10
