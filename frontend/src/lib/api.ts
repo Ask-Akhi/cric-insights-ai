@@ -76,6 +76,17 @@ export async function callPlayerSearch(apiBase: string, q: string): Promise<stri
   return json.players ?? []
 }
 
+/**
+ * Detect player names in a free-text sentence using the backend PLAYER_ALIASES map.
+ * O(n) — no Cricsheet I/O. Used by AskAI for real-time chart pre-loading.
+ */
+export async function callPlayerDetect(apiBase: string, text: string): Promise<string[]> {
+  const res = await fetch(`${apiBase}/api/players/detect?text=${encodeURIComponent(text)}`)
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  const json = await res.json()
+  return json.players ?? []
+}
+
 // ── Match Insights (Cricsheet-backed) ─────────────────────────────────────────
 export interface InsightsRequest {
   format: string

@@ -106,6 +106,23 @@ def _resolve_player_name(name: str) -> str:
     return PLAYER_ALIASES.get(name.strip().lower(), name.strip())
 
 
+@router.get("/detect")
+def detect_players_in_text(text: str = Query(..., description="Free-text sentence to scan for player names")):
+    """
+    Lightweight O(n) scan of PLAYER_ALIASES keys against a free-text sentence.
+    Returns up to 3 detected Cricsheet player names — no Cricsheet I/O needed.
+    Used by the frontend AskAI to auto-load stat charts as the user types.
+    """
+    lower = text.lower()
+    found: list[str] = []
+    for alias, cricsheet_name in PLAYER_ALIASES.items():
+        if alias in lower and cricsheet_name not in found:
+            found.append(cricsheet_name)
+        if len(found) == 3:
+            break
+    return {"players": found, "count": len(found)}
+
+
 @router.get("/")
 def list_players(q: str | None = None, limit: int = 100):
     provider = _get_provider()

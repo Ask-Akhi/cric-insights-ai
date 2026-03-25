@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import ToolShell from '../components/ToolShell'
 import PlayerCharts from '../components/PlayerCharts'
-import { callAsk, callPlayerStats, callPlayerSearch, PlayerStats } from '../lib/api'
+import { callAsk, callPlayerStats, callPlayerDetect, PlayerStats } from '../lib/api'
 
 interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
@@ -73,11 +73,11 @@ export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Pr
   // ── Live player detection via backend API (debounced, no hardcoded list) ──
   const debouncedQ = useDebounced(question, 400)
   const lastDetectRef = useRef<string>('')
-
   useEffect(() => {
-    if (debouncedQ.length < 4 || debouncedQ === lastDetectRef.current) return
+    if (debouncedQ.length < 6 || debouncedQ === lastDetectRef.current) return
     lastDetectRef.current = debouncedQ
-    callPlayerSearch(apiBase, debouncedQ)
+    // Use the lightweight /detect endpoint — aliases scan, no Cricsheet I/O
+    callPlayerDetect(apiBase, debouncedQ)
       .then(players => {
         if (players.length > 0 && debouncedQ === lastDetectRef.current) {
           const name = players[0]
