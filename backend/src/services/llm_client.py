@@ -192,15 +192,23 @@ def _build_prompt(prompt: str, context: Dict[str, Any]) -> str:
     full = system
     if ctx_str:
         full += f"Context:\n{ctx_str}\n\n"
+
+    question_suffix = f"Question: {prompt}"
+
     if cricsheet_data:
-        full += (
+        cricsheet_block = (
             "--- VERIFIED CRICSHEET DATA (ball-by-ball, use as primary stats source) ---\n"
             f"{cricsheet_data}\n"
             "--- END CRICSHEET DATA ---\n\n"
         )
-    full += f"Question: {prompt}"
+        # Truncate only the Cricsheet block if the full prompt would exceed the limit,
+        # always preserving the system prompt and the question.
+        budget = MAX_PROMPT_CHARS - len(full) - len(question_suffix) - 80
+        if budget > 500:
+            if len(cricsheet_block) > budget:
+                cricsheet_block = cricsheet_block[:budget] + "\n...[cricsheet data truncated]\n--- END CRICSHEET DATA ---\n\n"
+            full += cricsheet_block
+        # else: skip Cricsheet data entirely to stay within budget
 
-    if len(full) > MAX_PROMPT_CHARS:
-        full = full[:MAX_PROMPT_CHARS] + "\n...[context truncated for length]"
-
+    full += question_suffix
     return full

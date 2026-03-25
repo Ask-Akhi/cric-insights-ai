@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { AskIntent, AskMode } from '../lib/api'
 
 interface Props {
@@ -220,13 +221,11 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     )}
                     {isCached && <span className="stat-badge stat-badge-gold">⚡ cached</span>}
                     <span className="ml-auto text-xs text-slate-600 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
-                  </div>
-
-                  <div className="prose-cricket">
-                    <ReactMarkdown>
+                  </div>                  <div className="prose-cricket">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {isCached ? answer.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer}
                     </ReactMarkdown>
-                  </div>                  <div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                  </div><div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                     <button
                       className="btn-ghost"
                       onClick={() => {

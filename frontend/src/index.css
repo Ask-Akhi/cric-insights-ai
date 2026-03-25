@@ -192,18 +192,24 @@
     background: rgba(255,107,53,0.1); border: 1px solid rgba(255,107,53,0.2);
     border-radius: 5px; padding: 1px 6px;
     font-family: 'JetBrains Mono', monospace; font-size: 0.82em; color: #fb923c;
+  }  /* table wrapper — horizontal scroll on mobile */
+  .prose-cricket table {
+    width: 100%; border-collapse: collapse;
+    display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    border: 1px solid rgba(255,107,53,0.15); border-radius: 8px;
   }
-  .prose-cricket table { width: 100%; border-collapse: collapse; }
+  .prose-cricket thead { border-bottom: 1px solid rgba(255,107,53,0.3); }
   .prose-cricket th {
-    background: rgba(255,107,53,0.1); padding: 8px 12px;
+    background: rgba(255,107,53,0.12); padding: 9px 13px;
     font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase;
-    color: #fb923c; text-align: left;
+    color: #fb923c; text-align: left; white-space: nowrap;
   }
   .prose-cricket td {
-    padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding: 8px 13px; border-bottom: 1px solid rgba(255,255,255,0.05);
     color: #cbd5e1; font-size: 0.87rem;
   }
-  .prose-cricket tr:hover td { background: rgba(255,255,255,0.02); }
+  .prose-cricket tbody tr:last-child td { border-bottom: none; }
+  .prose-cricket tr:hover td { background: rgba(255,255,255,0.03); }
 
   /* ─── Shimmer skeleton ───────────────────────────────────── */
   .shimmer-line {
