@@ -281,17 +281,30 @@ export default function App() {
         </aside>
 
         {/* ── Main Content ──────────────────────────────────── */}
-        <main className="flex-1 min-w-0">
-          {/* Breadcrumb — mobile shows tool name + hamburger hint */}
-          <div className="flex items-center gap-2 mb-4">
+        <main className="flex-1 min-w-0">          {/* Breadcrumb bar */}
+          <div className="flex items-center gap-2 mb-5">
+            {/* Desktop breadcrumb */}
             <span className="text-slate-600 text-xs hidden md:inline">Tools</span>
             <span className="text-slate-700 text-xs hidden md:inline">/</span>
-            <span className="text-orange-400 text-xs font-semibold">{activeTool.icon} {activeTool.label}</span>
-            <button className="md:hidden ml-auto text-[10px] text-slate-500 border border-white/10 px-2 py-1 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.04)' }}
-              onClick={() => setMenuOpen(true)}>
-              ☰ Tools
-            </button>
+            <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-orange-400"
+              style={{ background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)' }}>
+              {activeTool.icon} {activeTool.label}
+            </span>
+            {/* Mobile: scrollable tool pill row */}
+            <div className="md:hidden flex items-center gap-1.5 overflow-x-auto scrollbar-hide flex-1 pb-0.5">
+              {TOOLS.map(t => (
+                <button key={t.id} onClick={() => selectTool(t.id)}
+                  className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+                  style={{
+                    background: active === t.id ? 'rgba(255,107,53,0.15)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${active === t.id ? 'rgba(255,107,53,0.35)' : 'rgba(255,255,255,0.07)'}`,
+                    color: active === t.id ? '#ff6b35' : '#64748b',
+                  }}>
+                  <span>{t.icon}</span>
+                  <span className="hidden xs:inline">{t.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <AnimatePresence mode="wait">

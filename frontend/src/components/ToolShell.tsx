@@ -108,11 +108,11 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
       if (timerRef.current) clearInterval(timerRef.current)
     }
   }
-
   const isCached   = answer?.startsWith('⚡')
   const showSide   = sidePanel && sidePanelReady
   const hasResult  = loading || answer || error
   const intentCfg  = INTENT_CONFIG[intent]
+  const showEmpty  = !hasResult
 
   return (
     <div className="space-y-5">
@@ -147,6 +147,25 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
           </button>
         </form>
       </div>
+
+      {/* ── Empty state — shown before first query ── */}
+      {showEmpty && (
+        <div className="glass p-6 flex flex-col items-center text-center gap-3 animate-fade-in"
+          style={{ border: '1px dashed rgba(255,255,255,0.07)' }}>
+          <div className="text-4xl opacity-30">{icon}</div>
+          <div>
+            <p className="text-sm font-semibold text-slate-400">Fill in the details above and hit <span className="text-orange-400">Analyse</span></p>
+            <p className="text-xs text-slate-600 mt-1">Results will appear here — powered by Cricsheet data + Gemini AI</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 mt-1">
+            {(['📊 Ball-by-ball stats', '🌐 Web-grounded answers', '🏆 Fantasy scoring'].map(t => (
+              <span key={t} className="text-[10px] px-2.5 py-1 rounded-full text-slate-600"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                {t}
+              </span>
+            )))}
+          </div>        </div>
+      )}
 
       {/* ── Result area ── */}
       <AnimatePresence>
