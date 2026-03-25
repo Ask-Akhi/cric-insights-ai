@@ -267,7 +267,8 @@ def recent_matches(
     }
 
     fmt_codes = FORMAT_MAP.get(format or "", [format] if format else None)  # type: ignore[arg-type]
-    raw = provider.get_matches(formats=fmt_codes)    if not raw:
+    raw = provider.get_matches(formats=fmt_codes)
+    if not raw:
         return {
             "matches": [], "count": 0, "source": "cricsheet", "live": False,
             "data_note": (
@@ -316,10 +317,10 @@ def recent_matches(
             "venue": row.get("venue") or "",
             "date": str(row.get("start_date") or ""),
             "format": row.get("format") or format or "",
-            "competition": row.get("competition") or "",
-            "status": "recent",
+            "competition": row.get("competition") or "",            "status": "recent",
             "score": "",
-        })    return {
+        })
+    return {
         "matches": results,
         "count": len(results),
         "source": "cricsheet",

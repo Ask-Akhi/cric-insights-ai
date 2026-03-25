@@ -63,16 +63,13 @@ def health():
         "frontend_ok": os.path.isdir(DIST_DIR),
     }
 
-# ── Routers — wrapped in try/except so a bad import never kills the process ───
-try:
-    from .routers import players, matches, insights, ask  # noqa: E402
-    app.include_router(players.router,  prefix="/api/players",  tags=["players"])
-    app.include_router(matches.router,  prefix="/api/matches",  tags=["matches"])
-    app.include_router(insights.router, prefix="/api/insights", tags=["insights"])
-    app.include_router(ask.router,      prefix="/api/ask",      tags=["ask"])
-    log.info("All routers registered successfully.")
-except Exception as _router_err:
-    log.error("Router import failed: %s — API routes unavailable, health still OK", _router_err)
+# ── Routers — let import errors surface so Railway logs show the real cause ───
+from .routers import players, matches, insights, ask  # noqa: E402
+app.include_router(players.router,  prefix="/api/players",  tags=["players"])
+app.include_router(matches.router,  prefix="/api/matches",  tags=["matches"])
+app.include_router(insights.router, prefix="/api/insights", tags=["insights"])
+app.include_router(ask.router,      prefix="/api/ask",      tags=["ask"])
+log.info("All routers registered successfully.")
 
 # ── Serve React frontend static assets ───────────────────────────────────────
 if os.path.isdir(DIST_DIR):
@@ -84,6 +81,10 @@ if os.path.isdir(DIST_DIR):
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str):
+        # Never serve index.html for API paths — return 404 so the real error surfaces
+        if full_path.startswith("api/"):
+            from starlette.responses import JSONResponse
+            return JSONResponse({"detail": "Not found"}, status_code=404)
         candidate = os.path.join(DIST_DIR, full_path)
         if full_path and os.path.isfile(candidate):
             return FileResponse(candidate)
