@@ -267,14 +267,15 @@ def recent_matches(
     }
 
     fmt_codes = FORMAT_MAP.get(format or "", [format] if format else None)  # type: ignore[arg-type]
-    raw = provider.get_matches(formats=fmt_codes)
-    if not raw:
+    raw = provider.get_matches(formats=fmt_codes)    if not raw:
         return {
             "matches": [], "count": 0, "source": "cricsheet", "live": False,
             "data_note": (
-                "Cricsheet data is still loading in background (first deploy takes ~3 min). "
-                "For live scores, set RAPIDAPI_KEY in Railway Variables → "
-                "https://rapidapi.com/cricketapilive/api/cricbuzz-cricket"
+                "Cricsheet data loading (first deploy ~3 min). "
+                "For live scores set one of these free API keys in Railway Variables: "
+                "RAPIDAPI_KEY (500/day, best) → rapidapi.com/cricketapilive/api/cricbuzz-cricket | "
+                "CRICAPI_KEY (100/day) → cricapi.com | "
+                "CricketData.org (no key, auto-fallback, 100/day)"
             ),
         }
 
@@ -318,16 +319,14 @@ def recent_matches(
             "competition": row.get("competition") or "",
             "status": "recent",
             "score": "",
-        })
-
-    return {
+        })    return {
         "matches": results,
         "count": len(results),
         "source": "cricsheet",
         "live": False,
         "data_note": (
             f"Cricsheet snapshot — latest match: {latest_date}. "
-            "Set RAPIDAPI_KEY in Railway Variables for live scores."
+            "For live scores set RAPIDAPI_KEY (best, 500/day free) or CRICAPI_KEY (100/day free) in Railway Variables."
         ),
         "latest_date": str(latest_date),
     }
