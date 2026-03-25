@@ -83,6 +83,31 @@ def get_llm_response_grounded(prompt: str, context: Dict[str, Any] = {}) -> str:
     return get_llm_response(prompt, context)
 
 
+def _is_truncated_table(text: str) -> bool:
+    """Return True if the response ends with a table header row but no data rows."""
+    if not text:
+        return False
+    lines = [l for l in text.splitlines() if l.strip()]
+    if len(lines) < 2:
+        return False
+    last = lines[-1].strip()
+    # Last line is a pipe-delimited row (header or separator)
+    if not (last.startswith("|") and last.endswith("|")):
+        return False
+    # Check if it's ONLY a header (no separator line followed by data)
+    # Find the last table block
+    table_lines = []
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines.insert(0, stripped)
+        else:
+            break
+    # A complete table needs: header + separator + at least 1 data row = 3+ lines
+    has_separator = any(set(l.replace("|", "").replace("-", "").replace(":", "").replace(" ", "")) == set() for l in table_lines)
+    return len(table_lines) < 3 or not has_separator
+
+
 def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = False) -> str:
     if not GEMINI_API_KEY:
         return "❌ GEMINI_API_KEY not set in .env file."
@@ -114,7 +139,19 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                     contents=full_prompt,
                     config=types.GenerateContentConfig(**config_kwargs),
                 )
-                return response.text
+                text = response.text or ""
+                # ── Truncation guard: if response ends mid-table (last non-blank
+                # line is a header row with no data rows after it), retry once
+                # with an explicit "complete the table" continuation prompt.
+                if _is_truncated_table(text) and attempt == 0:
+                    continuation = full_prompt + "\n\n[SYSTEM: Your previous response was cut off mid-table. Please complete the markdown table with ALL data rows and finish the response.]"
+                    r2 = client.models.generate_content(
+                        model=model,
+                        contents=continuation,
+                        config=types.GenerateContentConfig(**config_kwargs),
+                    )
+                    text = r2.text or text  # use retry; fall back to original if retry also fails
+                return text
             except Exception as e:
                 err = str(e)
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
@@ -163,19 +200,28 @@ def _build_prompt(prompt: str, context: Dict[str, Any]) -> str:
         f"You are an expert cricket analyst AI — the equivalent of a senior ESPNcricinfo journalist combined with a data scientist. Today's date is {today}.\n\n"
         "=== CORE RULES ===\n"
         "1. COMPLETE answers only — never cut off mid-sentence, mid-table, or mid-list.\n"
-        "2. STRUCTURE every response with markdown headers (##), bullet points, and tables where relevant.\n"
-        "3. CRICSHEET DATA = GROUND TRUTH — if provided below, always cite it explicitly and use it as primary source.\n"
-        "4. CITE your sources — say 'per Cricsheet data' or 'based on training knowledge' so users know what's verified.\n"
-        "5. CURRENT SEASON — include IPL 2026 context when discussing players. If uncertain about last few days, say so.\n"
-        "6. NON-CRICKET REDIRECT — if the question is not about cricket, respond: '🏏 I am a cricket specialist. Try asking about a player, match, or fantasy team.'\n"
-        "7. NUMBERS over vague claims — always prefer 'average of 48.3 in 87 matches' over 'plays well consistently'.\n"
-        "8. END WITH VALUE — always close with a summary, recommendation, or actionable insight.\n\n"
+        "2. TABLES: always include the header row, the separator row (|---|---|), AND all data rows. Never emit a table header without its data rows.\n"
+        "3. STRUCTURE every response with markdown headers (##), bullet points, and tables where relevant.\n"
+        "4. CRICSHEET DATA = GROUND TRUTH — if provided below, always cite it explicitly and use it as primary source.\n"
+        "5. VENUE/GROUND RECORDS — if Cricsheet venue data is provided, use it. If not provided, say 'per web search' and use your grounded knowledge.\n"
+        "6. FANTASY PREDICTION DATA — if FANTASY PREDICTION blocks are provided below, use those exact expected-runs/wickets numbers in your table. Do NOT say 'data unavailable'.\n"
+        "7. CITE your sources — say 'per Cricsheet data' or 'per web search' so users know what's verified.\n"
+        "8. CURRENT SEASON — include IPL 2026 context when discussing players.\n"
+        "9. NON-CRICKET REDIRECT — if the question is not about cricket, respond: '🏏 I am a cricket specialist. Try asking about a player, match, or fantasy team.'\n"
+        "10. NUMBERS over vague claims — always prefer 'average of 48.3 in 87 matches' over 'plays well consistently'.\n"
+        "11. END WITH VALUE — always close with a summary, recommendation, or actionable insight.\n\n"
         "=== OUTPUT QUALITY ===\n"
         "- For STATS questions: lead with a stat table, then context, then summary.\n"
         "- For COMPARE questions: use a side-by-side table with an 'Edge' column, then give a definitive verdict.\n"
-        "- For FANTASY questions: give ranked list with expected points range, then Captain/VC picks with reasons.\n"
-        "- For PREDICT questions: give winner + confidence %, then 3 key deciding factors.\n"
+        "- For FANTASY questions: give a ranked table with columns [Player | Team | Role | Expected Runs | Expected Wickets | Est. Fantasy Pts | Pick Reason], then Captain/VC picks.\n"
+        "- For PREDICT questions: give winner + confidence %, then 3 key deciding factors, then a player predictions table.\n"
         "- For GENERAL questions: match the depth to the question — concise for simple, structured for complex.\n\n"
+        "=== CRITICAL TABLE FORMAT ===\n"
+        "Every markdown table MUST have ALL three parts:\n"
+        "1. Header row: | Col1 | Col2 | Col3 |\n"
+        "2. Separator: |---|---|---|\n"
+        "3. Data rows: | value | value | value |\n"
+        "NEVER emit a header row without the separator and at least one data row.\n\n"
     )
 
     # Cricsheet RAG data — inject first so LLM treats it as ground truth
