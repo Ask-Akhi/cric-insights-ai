@@ -54,7 +54,7 @@ def _llm(temperature: float = 0.3) -> Any:
         model=LLM_MODEL,
         google_api_key=GEMINI_API_KEY,
         temperature=temperature,
-        max_output_tokens=512,
+        max_output_tokens=1024,  # enough for a table + summary
     )
 
 
