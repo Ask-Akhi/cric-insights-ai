@@ -179,7 +179,7 @@ export default function FantasyXI({ apiBase, format, grounded, onQuestionAsked }
           <h2 className="text-2xl font-bold text-white leading-tight" style={{ fontFamily: '"Playfair Display",Georgia,serif' }}>
             Fantasy XI Builder
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Score your squad with Cricsheet data + AI fantasy picks</p>
+          <p className="text-sm text-slate-500 mt-1">Score your squad with AI-powered fantasy picks</p>
         </div>
       </div>
 
@@ -328,7 +328,7 @@ export default function FantasyXI({ apiBase, format, grounded, onQuestionAsked }
                 })}
 
                 <p className="text-[10px] text-slate-600 text-center pt-2">
-                  Click a player to toggle Captain / tap again to clear. Points are Cricsheet career averages — not match-day projections.
+                  Click a player to toggle Captain / tap again to clear. Points are based on career averages — not match-day projections.
                 </p>
               </div>
             )}

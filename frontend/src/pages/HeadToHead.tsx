@@ -53,7 +53,7 @@ export default function HeadToHead({ apiBase, format, grounded, onQuestionAsked 
           <h2 className="text-2xl font-bold text-white leading-tight" style={{ fontFamily: '"Playfair Display",Georgia,serif' }}>
             Head-to-Head
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Cricsheet historical record + AI matchup analysis</p>
+          <p className="text-sm text-slate-500 mt-1">Historical match record + AI matchup analysis</p>
         </div>
       </div>
 
@@ -92,7 +92,7 @@ export default function HeadToHead({ apiBase, format, grounded, onQuestionAsked 
             {/* Tabs */}
             <div className="flex gap-2 p-1 rounded-xl w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <button onClick={() => setTab('data')} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'data' ? 'bg-red-500 text-white' : 'text-slate-400'}`}>
-                📊 Cricsheet Data
+                📊 Match Stats
               </button>
               <button onClick={() => setTab('ai')} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'ai' ? 'bg-orange-500 text-white' : 'text-slate-400'}`}>
                 💬 AI Analysis {aiLoading ? '⏳' : ''}
@@ -180,7 +180,7 @@ export default function HeadToHead({ apiBase, format, grounded, onQuestionAsked 
                     </>
                   ) : (
                     <div className="glass p-6 text-sm text-slate-500 text-center">
-                      No Cricsheet matches found between "{teamA}" and "{teamB}". Check team name spelling.
+                      No matches found between "{teamA}" and "{teamB}". Check team name spelling.
                     </div>
                   )
                 )}

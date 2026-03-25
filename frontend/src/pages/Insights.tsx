@@ -47,7 +47,7 @@ function PlayerCard({ p, role }: { p: PlayerInsight; role: 'bat' | 'bowl' }) {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-slate-100 truncate">{p.player}</p>
         {noData
-          ? <p className="text-[10px] text-slate-600 mt-0.5">No Cricsheet data</p>
+          ? <p className="text-[10px] text-slate-600 mt-0.5">No data available</p>
           : (
             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
               {vf !== null && <span className="text-[10px] text-slate-500">Venue ×{vf?.toFixed(2)}</span>}
@@ -110,7 +110,7 @@ function FantasyPicks({ data }: { data: InsightsResponse }) {
       className="p-5 rounded-2xl space-y-3"
       style={{ background: 'rgba(255,107,53,0.05)', border: '1px solid rgba(255,107,53,0.15)' }}
     >
-      <p className="text-xs font-bold uppercase tracking-widest text-orange-400">⚡ Fantasy Picks · From Cricsheet Data</p>
+      <p className="text-xs font-bold uppercase tracking-widest text-orange-400">⚡ Fantasy Picks · AI-Powered</p>
       <div className="grid grid-cols-2 gap-4">
         {topBat.length > 0 && (
           <div>
@@ -226,7 +226,7 @@ export default function Insights({ apiBase, format, grounded, onQuestionAsked }:
           <h2 className="text-2xl font-bold text-white leading-tight" style={{ fontFamily: '"Playfair Display",Georgia,serif' }}>
             Squad Insights
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Cricsheet ball-by-ball stats + AI analysis for your match-up</p>
+          <p className="text-sm text-slate-500 mt-1">Ball-by-ball stats + AI analysis for your match-up</p>
         </div>
       </div>
 
@@ -268,7 +268,7 @@ export default function Insights({ apiBase, format, grounded, onQuestionAsked }:
                 onClick={() => setTab('data')}
                 className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'data' ? 'bg-orange-500 text-white' : 'text-slate-400'}`}
               >
-                📊 Cricsheet Data
+                📊 Match Stats
               </button>
               <button
                 onClick={() => setTab('ai')}
@@ -301,7 +301,7 @@ export default function Insights({ apiBase, format, grounded, onQuestionAsked }:
                         {battersB.length > 0 && <TeamPanel team={form.teamB} players={battersB} role="bat" />}
                         {!battersA.length && !battersB.length && (
                           <p className="text-sm text-slate-500 col-span-2">
-                            Enter squad names above to see per-player batting projections from Cricsheet data.
+                            Enter squad names above to see per-player batting projections.
                           </p>
                         )}
                       </div>
@@ -315,7 +315,7 @@ export default function Insights({ apiBase, format, grounded, onQuestionAsked }:
                         {bowlersB.length > 0 && <TeamPanel team={form.teamB} players={bowlersB} role="bowl" />}
                         {!bowlersA.length && !bowlersB.length && (
                           <p className="text-sm text-slate-500 col-span-2">
-                            Enter squad names above to see per-player bowling projections from Cricsheet data.
+                            Enter squad names above to see per-player bowling projections.
                           </p>
                         )}
                       </div>
@@ -325,7 +325,7 @@ export default function Insights({ apiBase, format, grounded, onQuestionAsked }:
 
                 {!loading && !hasAnyData && (
                   <div className="glass p-6 text-sm text-slate-500 text-center">
-                    No Cricsheet ball-by-ball data found for the provided squads.
+                    No ball-by-ball data found for the provided squads.
                     The dataset covers matches up to 2016 — add squad names to get projections.
                   </div>
                 )}

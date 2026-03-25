@@ -44,7 +44,7 @@ const TOOLS = [
   { id: 'bowler',   icon: '🎳', label: 'Bowler Stats',    desc: 'Bowling analysis' },
   { id: 'compare',  icon: '⚖️', label: 'Compare Players', desc: 'Side-by-side stats' },
   { id: 'fantasy',  icon: '🏆', label: 'Fantasy XI',      desc: 'Score & rank squad' },
-  { id: 'insights', icon: '📊', label: 'Squad Insights',  desc: 'Cricsheet + AI' },
+  { id: 'insights', icon: '📊', label: 'Squad Insights',  desc: 'Stats + AI' },
   { id: 'venue',    icon: '🏟️', label: 'Venue Stats',     desc: 'Ground records' },
   { id: 'h2h',      icon: '⚔️', label: 'Head-to-Head',   desc: 'Team history' },
   { id: 'recent',   icon: '📅', label: 'Recent Matches',  desc: 'Latest results' },
@@ -106,7 +106,7 @@ export default function App() {
               </div>
               <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#05070f]"
                 style={{ background: tickerLive ? '#4ade80' : '#334155' }}
-                title={tickerLive ? 'Live cricket data' : 'Cricsheet dataset (static)'}
+                title={tickerLive ? 'Live cricket data' : 'Historical cricket data'}
               />
             </div>
             <div>
@@ -336,21 +336,12 @@ export default function App() {
             <span className="text-sm font-semibold text-slate-300">Cric Insights AI</span>
             <span className="text-slate-700 text-sm">·</span>
             <span className="text-xs text-slate-600">AI - CricAnalyst</span>
-          </div>
-          <div className="flex items-center flex-wrap justify-center gap-3 text-[11px] text-slate-700">
-            <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer"
-              className="hover:text-orange-400 transition-colors">
-              📊 Cricsheet Data
-            </a>
+          </div>          <div className="flex items-center flex-wrap justify-center gap-3 text-[11px] text-slate-700">
+            <span>📊 Ball-by-ball cricket data</span>
             <span>·</span>
             <span>Powered by Gemini AI + LangGraph</span>
             <span>·</span>
-            <a href="https://github.com/Ask-Akhi/cric-insights-ai" target="_blank" rel="noopener noreferrer"
-              className="hover:text-slate-400 transition-colors">
-              GitHub
-            </a>
-            <span>·</span>
-            <span>© {CURRENT_YEAR}</span>
+            <span>© {CURRENT_YEAR} Cric Insights AI</span>
           </div>
         </div>
       </footer>

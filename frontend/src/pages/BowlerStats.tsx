@@ -29,7 +29,7 @@ export default function BowlerStats({ apiBase, format, grounded, onQuestionAsked
   const chartsPanel = (
     <>
       <div className="flex items-center gap-2 mb-4 pb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <span className="text-[10px] font-bold tracking-widest uppercase text-amber-400">📊 Cricsheet Data</span>
+        <span className="text-[10px] font-bold tracking-widest uppercase text-amber-400">📊 Bowling Stats</span>
         {chartLoading && (
           <span className="ml-auto text-[10px] text-slate-500 animate-pulse">Loading…</span>
         )}
@@ -44,7 +44,7 @@ export default function BowlerStats({ apiBase, format, grounded, onQuestionAsked
       {!chartLoading && chartData?.found && <PlayerCharts stats={chartData} />}
       {!chartLoading && chartData && !chartData.found && (
         <p className="text-xs text-slate-500 text-center py-6">
-          No Cricsheet data found for <strong className="text-slate-300">{player}</strong>
+          No stats found for <strong className="text-slate-300">{player}</strong>
         </p>
       )}
     </>

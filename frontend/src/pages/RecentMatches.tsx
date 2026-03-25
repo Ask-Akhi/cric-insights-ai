@@ -75,7 +75,7 @@ export default function RecentMatches({ apiBase, format, grounded, onQuestionAsk
           <h2 className="text-2xl font-bold text-white leading-tight" style={{ fontFamily: '"Playfair Display",Georgia,serif' }}>
             Recent Matches
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Cricsheet match log + AI form analysis</p>
+          <p className="text-sm text-slate-500 mt-1">Recent match log + AI form analysis</p>
         </div>
       </div>
 

@@ -159,7 +159,7 @@ export default function SquadBuilder({
       )}
 
       <p className="text-[10px] text-slate-600 px-1">
-        Search Cricsheet names (e.g. "V Kohli", "JJ Bumrah") — or type any name and press Enter
+        Search player names (e.g. "V Kohli", "JJ Bumrah") — or type any name and press Enter
       </p>
     </div>
   )

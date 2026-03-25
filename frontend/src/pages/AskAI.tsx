@@ -143,7 +143,7 @@ export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Pr
       {!chartLoading && chartData?.found && <PlayerCharts stats={chartData} />}
       {!chartLoading && chartData && !chartData.found && (
         <p className="text-xs text-slate-500 text-center py-6">
-          No Cricsheet data found for <strong className="text-slate-300">{chartPlayer}</strong>
+          No stats data found for <strong className="text-slate-300">{chartPlayer}</strong>
         </p>
       )}
     </>

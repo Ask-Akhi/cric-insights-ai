@@ -210,7 +210,7 @@ export default function PlayerCharts({ stats }: { stats: PlayerStats }) {
               </span>
             )}
             {!batter && !bowler && (
-              <span className="text-xs text-slate-500">No Cricsheet data found</span>
+              <span className="text-xs text-slate-500">No stats data found</span>
             )}
           </div>
         </div>

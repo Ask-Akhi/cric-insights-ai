@@ -135,7 +135,7 @@ export default function PlayerCompare({ apiBase, format, grounded, onQuestionAsk
           <h2 className="text-2xl font-bold text-white leading-tight" style={{ fontFamily: '"Playfair Display",Georgia,serif' }}>
             Player Comparison
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Side-by-side Cricsheet stats + AI analysis</p>
+          <p className="text-sm text-slate-500 mt-1">Side-by-side career stats + AI analysis</p>
         </div>
       </div>
 
@@ -192,7 +192,7 @@ export default function PlayerCompare({ apiBase, format, grounded, onQuestionAsk
                   <Avatar name={stats?.player ?? name} color={color} />
                   <div className="min-w-0">
                     <p className="font-bold text-white truncate text-sm">{stats?.player ?? name}</p>
-                    {stats?.found === false && <p className="text-[10px] text-red-400 mt-0.5">Not found in Cricsheet</p>}
+                    {stats?.found === false && <p className="text-[10px] text-red-400 mt-0.5">Player not found</p>}
                     <div className="flex gap-1 mt-1.5 flex-wrap">
                       {stats?.batter && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: `${color}22`, color }}>🏏 Bat</span>}
                       {stats?.bowler && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: `${color}22`, color }}>🎳 Bowl</span>}

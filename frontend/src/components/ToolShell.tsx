@@ -27,7 +27,7 @@ const INTENT_CONFIG: Record<AskIntent, { label: string; color: string; bg: strin
 // ── Thinking steps shown during graph execution ────────────────────────────
 const THINKING_STEPS = [
   { ms: 0,    text: '🧠 Routing question...'         },
-  { ms: 800,  text: '🔍 Fetching Cricsheet stats...' },
+  { ms: 800,  text: '🔍 Fetching player stats...' },
   { ms: 2000, text: '⚙️  Running analysis node...'   },
   { ms: 4500, text: '✍️  Generating answer...'       },
   { ms: 8000, text: '🔄 Synthesizing response...'    },
@@ -156,7 +156,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
           <div className="text-4xl opacity-30">{icon}</div>
           <div>
             <p className="text-sm font-semibold text-slate-400">Fill in the details above and hit <span className="text-orange-400">Analyse</span></p>
-            <p className="text-xs text-slate-600 mt-1">Results will appear here — powered by Cricsheet data + Gemini AI</p>
+            <p className="text-xs text-slate-600 mt-1">Results will appear here — powered by ball-by-ball cricket data + Gemini AI</p>
           </div>
           <div className="flex flex-wrap justify-center gap-2 mt-1">
             {(['📊 Ball-by-ball stats', '🌐 Web-grounded answers', '🏆 Fantasy scoring'].map(t => (

@@ -57,7 +57,7 @@ export default function VenueStats({ apiBase, format, grounded, onQuestionAsked 
           <h2 className="text-2xl font-bold text-white leading-tight" style={{ fontFamily: '"Playfair Display",Georgia,serif' }}>
             Venue Statistics
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Cricsheet ball-by-ball ground records + AI analysis</p>
+          <p className="text-sm text-slate-500 mt-1">Ball-by-ball ground records + AI analysis</p>
         </div>
       </div>
 
@@ -85,7 +85,7 @@ export default function VenueStats({ apiBase, format, grounded, onQuestionAsked 
             {/* Tab bar */}
             <div className="flex gap-2 p-1 rounded-xl w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <button onClick={() => setTab('data')} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'data' ? 'bg-indigo-500 text-white' : 'text-slate-400'}`}>
-                📊 Cricsheet Data
+                📊 Venue Stats
               </button>
               <button onClick={() => setTab('ai')} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'ai' ? 'bg-orange-500 text-white' : 'text-slate-400'}`}>
                 💬 AI Analysis {aiLoading ? '⏳' : ''}
@@ -140,7 +140,7 @@ export default function VenueStats({ apiBase, format, grounded, onQuestionAsked 
                     </>
                   ) : (
                     <div className="glass p-6 text-sm text-slate-500 text-center">
-                      No Cricsheet data found for "{venue}". Try a different venue name.
+                      No data found for "{venue}". Try a different venue name.
                     </div>
                   )
                 )}

@@ -155,7 +155,7 @@ export default function PlayerSearchInput({
         </ul>
       )}      {/* Hint text */}
       <p className="text-[10px] text-slate-600 mt-1.5 px-1">
-        Type a full name (e.g. "Virat Kohli") or Cricsheet initials (e.g. "V Kohli")
+        Type a full name (e.g. "Virat Kohli") or initials (e.g. "V Kohli")
       </p>
     </div>
   )
