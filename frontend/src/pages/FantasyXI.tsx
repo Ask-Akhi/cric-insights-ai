@@ -1,360 +1,524 @@
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useCallback } from 'react'
 import SquadBuilder from '../components/SquadBuilder'
-import { callPlayerStats, callAsk, PlayerStats } from '../lib/api'
-import ReactMarkdown from 'react-markdown'
+import { callPlayerStats, callAsk } from '../lib/api'
 
-interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
+// ── Types ─────────────────────────────────────────────────────────────────────
+type Role = 'WK' | 'BAT' | 'AR' | 'BOWL' | '?'
 
-// ── Fantasy point model (Dream11-like) ───────────────────────────────────────
-// Batting: 1 pt/run, 4=1 bonus, 6=2 bonus, 50=8 bonus, 100=16 bonus, S/R bonus
-// Bowling: 25 pt/wkt, economy bonus, 3w=4, 4w=8, 5w=16
-//
-// Form weighting: recent 10 innings count 70%, career average 30%.
-// This prevents cold veterans outscoring hot in-form players.
-function calcFantasyScore(stats: PlayerStats): number {
-  let pts = 0
-  const bat = stats.batter
-  const bowl = stats.bowler
-
-  if (bat) {
-    // Career averages
-    const careerRPM = bat.total_runs / Math.max(bat.total_matches, 1)
-    const ballsPerMatch = bat.total_balls / Math.max(bat.total_matches, 1)
-    const sr = bat.strike_rate
-
-    // Recent form: last 10 entries from runs_per_match array (sorted oldest→newest by API)
-    const recent = bat.runs_per_match.slice(-10)
-    const recentRPM = recent.length > 0
-      ? recent.reduce((s, r) => s + r.runs, 0) / recent.length
-      : careerRPM
-
-    // Weighted expected runs per match (70% recent, 30% career)
-    const expectedRPM = recent.length >= 3
-      ? recentRPM * 0.7 + careerRPM * 0.3
-      : careerRPM  // not enough recent data — use career only
-
-    // Run points
-    pts += expectedRPM * 1
-    // 4s/6s bonus (proportional to career rate — not enough recent granularity)
-    pts += (bat.fours / Math.max(bat.total_matches, 1)) * 1
-    pts += (bat.sixes / Math.max(bat.total_matches, 1)) * 2
-    // Milestone bonus estimated from weighted average
-    const weightedAvg = recent.length >= 3
-      ? recentRPM * 0.7 + bat.average * 0.3
-      : bat.average
-    if (weightedAvg >= 50) pts += 16
-    else if (weightedAvg >= 25) pts += 8
-    // SR bonus
-    if (sr >= 170) pts += 6
-    else if (sr >= 150) pts += 4
-    else if (sr >= 130) pts += 2
-    else if (sr < 60 && ballsPerMatch > 4) pts -= 2
-
-    // Form streak bonus: last 3 matches all above career average → +3
-    if (recent.length >= 3 && recent.slice(-3).every(r => r.runs >= careerRPM)) pts += 3
-  }
-
-  if (bowl) {
-    // Career averages
-    const careerWPM = bowl.total_wickets / Math.max(bowl.total_matches, 1)
-
-    // Recent form: last 10 entries from wickets_per_match
-    const recent = bowl.wickets_per_match.slice(-10)
-    const recentWPM = recent.length > 0
-      ? recent.reduce((s, r) => s + r.wickets, 0) / recent.length
-      : careerWPM
-    const recentEcon = recent.length > 0
-      ? recent.reduce((s, r) => s + r.economy, 0) / recent.length
-      : bowl.economy
-
-    // Weighted expected wickets per match (70% recent, 30% career)
-    const expectedWPM = recent.length >= 3
-      ? recentWPM * 0.7 + careerWPM * 0.3
-      : careerWPM
-    const expectedEcon = recent.length >= 3
-      ? recentEcon * 0.7 + bowl.economy * 0.3
-      : bowl.economy
-
-    // Wicket points
-    pts += expectedWPM * 25
-    // Economy bonus (on weighted recent economy)
-    if (expectedEcon < 6) pts += 6
-    else if (expectedEcon < 7) pts += 4
-    else if (expectedEcon < 8) pts += 2
-    else if (expectedEcon > 10) pts -= 2
-    // Multi-wicket haul bonus
-    if (expectedWPM >= 3) pts += 8
-    else if (expectedWPM >= 2) pts += 4
-
-    // Form streak bonus: last 3 matches all ≥ 1 wicket → +2
-    if (recent.length >= 3 && recent.slice(-3).every(r => r.wickets >= 1)) pts += 2
-  }
-
-  return Math.round(pts * 10) / 10
-}
-
-interface ScoredPlayer {
+interface PickedPlayer {
   name: string
-  stats: PlayerStats | null
+  role: Role
   score: number
-  role: 'bat' | 'bowl' | 'allrounder' | 'unknown'
+  runs: number
+  wickets: number
+  sr: number
+  eco: number
+  matches: number
+  team: 'A' | 'B'
+  isCap: boolean
+  isVC: boolean
 }
 
-function roleTag(s: PlayerStats | null): ScoredPlayer['role'] {
-  if (!s) return 'unknown'
-  if (s.batter && s.bowler) return 'allrounder'
-  if (s.batter) return 'bat'
-  if (s.bowler) return 'bowl'
-  return 'unknown'
+interface Props {
+  apiBase: string
+  format?: string
+  grounded?: boolean
+  onQuestionAsked?: () => void
 }
 
-const ROLE_COLOR: Record<string, string> = {
-  bat:        'text-orange-400 bg-orange-500/10 border-orange-500/20',
-  bowl:       'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  allrounder: 'text-green-400 bg-green-500/10 border-green-500/20',
-  unknown:    'text-slate-500 bg-slate-500/10 border-slate-500/20',
+// ── Role colours ──────────────────────────────────────────────────────────────
+const ROLE_COLOR: Record<Role, string> = {
+  WK:   '#f59e0b',
+  BAT:  '#22d3ee',
+  AR:   '#a78bfa',
+  BOWL: '#4ade80',
+  '?':  '#94a3b8',
 }
-const ROLE_LABEL: Record<string, string> = {
-  bat: '🏏 BAT', bowl: '🎳 BOWL', allrounder: '⭐ ALL', unknown: '—',
+const ROLE_BG: Record<Role, string> = {
+  WK:   'rgba(245,158,11,0.15)',
+  BAT:  'rgba(34,211,238,0.12)',
+  AR:   'rgba(167,139,250,0.12)',
+  BOWL: 'rgba(74,222,128,0.12)',
+  '?':  'rgba(148,163,184,0.08)',
 }
 
-export default function FantasyXI({ apiBase, format, grounded, onQuestionAsked }: Props) {
-  const [squad, setSquad] = useState<string[]>([])
-  const [players, setPlayers] = useState<ScoredPlayer[] | null>(null)
-  const [aiAnswer, setAiAnswer] = useState<string | null>(null)
+// ── Fantasy scoring (Dream11-style T20 approximation) ─────────────────────────
+function calcFantasyScore(
+  runs: number,
+  wickets: number,
+  sr: number,
+  eco: number,
+  matches: number,
+  isCap: boolean,
+  isVC: boolean,
+): number {
+  if (matches === 0) return 0
+  const perMatch = { runs: runs / matches, wkts: wickets / matches }
+  let pts = 0
+  pts += perMatch.runs * 1
+  pts += perMatch.wkts * 25
+  if (sr > 170) pts += 6
+  else if (sr > 150) pts += 4
+  else if (sr > 130) pts += 2
+  else if (sr > 0 && sr < 70) pts -= 6
+  else if (sr > 0 && sr < 80) pts -= 4
+  if (eco > 0 && eco < 6) pts += 6
+  else if (eco > 0 && eco < 7) pts += 4
+  else if (eco > 0 && eco < 8) pts += 2
+  else if (eco > 10) pts -= 6
+  else if (eco > 9) pts -= 4
+  const multiplier = isCap ? 2 : isVC ? 1.5 : 1
+  return Math.round(pts * multiplier * 10) / 10
+}
+
+// ── Role guesser ──────────────────────────────────────────────────────────────
+function guessRole(
+  batter: { total_runs: number; total_matches: number } | null,
+  bowler: { total_wickets: number; total_matches: number } | null,
+  forcedWK: boolean,
+): Role {
+  if (forcedWK) return 'WK'
+  const batMatches = batter?.total_matches ?? 0
+  const bowlMatches = bowler?.total_matches ?? 0
+  const hasBat = batMatches > 2
+  const hasBowl = bowlMatches > 2
+  if (hasBat && hasBowl) return 'AR'
+  if (hasBat) return 'BAT'
+  if (hasBowl) return 'BOWL'
+  return '?'
+}
+
+// ── Small components ──────────────────────────────────────────────────────────
+function RoleBadge({ role }: { role: Role }) {
+  return (
+    <span
+      className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-widest"
+      style={{ color: ROLE_COLOR[role], background: ROLE_BG[role] }}
+    >
+      {role}
+    </span>
+  )
+}
+
+function CaptainBadge({ type }: { type: 'C' | 'VC' }) {
+  return (
+    <span
+      className="text-[9px] font-black px-1.5 py-0.5 rounded-full"
+      style={{
+        background: type === 'C' ? 'rgba(245,158,11,0.9)' : 'rgba(167,139,250,0.9)',
+        color: '#0f172a',
+      }}
+    >
+      {type}
+    </span>
+  )
+}
+
+function PlayerCard({ p, onCycle }: { p: PickedPlayer; onCycle: (name: string) => void }) {
+  return (
+    <div
+      className="relative flex flex-col items-center gap-1 p-2 rounded-xl cursor-pointer select-none transition-all"
+      style={{ background: ROLE_BG[p.role], border: `1px solid ${ROLE_COLOR[p.role]}44`, minWidth: 72 }}
+      onClick={() => onCycle(p.name)}
+      title="Tap to cycle: Normal → Captain → Vice-Captain"
+    >
+      {(p.isCap || p.isVC) && (
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+          <CaptainBadge type={p.isCap ? 'C' : 'VC'} />
+        </div>
+      )}
+      <div
+        className="w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold"
+        style={{ background: ROLE_BG[p.role], border: `2px solid ${ROLE_COLOR[p.role]}88` }}
+      >
+        {p.role === 'WK' ? '🧤' : p.role === 'BOWL' ? '⚾' : p.role === 'AR' ? '⚡' : '🏏'}
+      </div>
+      <span className="text-[10px] font-semibold text-white text-center leading-tight max-w-[72px] truncate" title={p.name}>
+        {p.name.split(' ').pop()}
+      </span>
+      <RoleBadge role={p.role} />
+      <span className="text-[11px] font-bold" style={{ color: ROLE_COLOR[p.role] }}>
+        {p.score.toFixed(1)} pts
+      </span>
+      <div
+        className="absolute top-1 right-1 w-2 h-2 rounded-full"
+        style={{ background: p.team === 'A' ? '#3b82f6' : '#f43f5e' }}
+        title={`Team ${p.team}`}
+      />
+    </div>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
+export default function FantasyXI({ apiBase, format, onQuestionAsked }: Props) {
+  const [teamA, setTeamA] = useState('')
+  const [teamB, setTeamB] = useState('')
+  const [squadA, setSquadA] = useState<string[]>([])
+  const [squadB, setSquadB] = useState<string[]>([])
+  const [wkA, setWkA] = useState('')
+  const [wkB, setWkB] = useState('')
+  const [step, setStep] = useState<1 | 2>(1)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'xi' | 'ai'>('xi')
-  const [captain, setCaptain] = useState<string | null>(null)
-  const [viceCaptain, setViceCaptain] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [picked, setPicked] = useState<PickedPlayer[]>([])
+  const [activeTab, setActiveTab] = useState<'field' | 'list' | 'ai'>('field')
+  const [aiAnswer, setAiAnswer] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [capName, setCapName] = useState('')
+  const [vcName, setVcName] = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const names = squad.filter(Boolean)
-    if (names.length < 2) return
-    setError(null); setPlayers(null); setAiAnswer(null); setCaptain(null); setViceCaptain(null)
+  const cycleCapVC = useCallback((name: string) => {
+    if (capName !== name && vcName !== name) {
+      setCapName(name)
+    } else if (capName === name) {
+      setVcName(name)
+      setCapName('')
+    } else {
+      setVcName('')
+    }
+  }, [capName, vcName])
+
+  const handleBuild = async () => {
+    const allPlayers = [
+      ...squadA.map(n => ({ name: n, team: 'A' as const })),
+      ...squadB.map(n => ({ name: n, team: 'B' as const })),
+    ]
+    if (allPlayers.length < 2) { setError('Add at least 2 players across both squads.'); return }
     setLoading(true)
-
-    // Fetch all player stats in parallel
-    const results = await Promise.allSettled(names.map(n => callPlayerStats(apiBase, n)))
-    const scored: ScoredPlayer[] = names.map((name, i) => {
-      const r = results[i]
-      const stats = r.status === 'fulfilled' ? r.value : null
-      const score = stats ? calcFantasyScore(stats) : 0
-      return { name: stats?.player ?? name, stats, score, role: roleTag(stats) }
-    })
-    // Sort descending by score
-    scored.sort((a, b) => b.score - a.score)
-    setPlayers(scored)
-    setCaptain(scored[0]?.name ?? null)
-    setViceCaptain(scored[1]?.name ?? null)
-
-    // AI picks in parallel
-    callAsk(apiBase, {
-      prompt:
-        `For a Dream11 fantasy team for a ${format} match, rank these players by fantasy value: ${names.join(', ')}. ` +
-        `For each player give: role (bat/bowl/allrounder), expected points range, and risk level. ` +
-        `Then pick the best captain, vice-captain, and a differential pick with reasoning.`,
-      context: { format, players: names.join(', ') },
-      grounded,
-    })      .then(r => { setAiAnswer(r.answer); onQuestionAsked?.() })
-      .catch(() => setAiAnswer(null))
-      .finally(() => setLoading(false))
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        allPlayers.map(({ name, team }) =>
+          callPlayerStats(apiBase, name, format).then(s => ({ s, team, name }))
+        )
+      )
+      const players: PickedPlayer[] = results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => {
+          const { s, team, name } = (r as PromiseFulfilledResult<{
+            s: Awaited<ReturnType<typeof callPlayerStats>>
+            team: 'A' | 'B'
+            name: string
+          }>).value
+          const forcedWK = (team === 'A' && wkA === name) || (team === 'B' && wkB === name)
+          const role     = guessRole(s.batter, s.bowler, forcedWK)
+          const runs     = s.batter?.total_runs ?? 0
+          const wickets  = s.bowler?.total_wickets ?? 0
+          const sr       = s.batter?.strike_rate ?? 0
+          const eco      = s.bowler?.economy ?? 0
+          const matches  = Math.max(s.batter?.total_matches ?? 0, s.bowler?.total_matches ?? 0)
+          const score    = calcFantasyScore(runs, wickets, sr, eco, matches, false, false)
+          return { name, role, score, runs, wickets, sr, eco, matches, team, isCap: false, isVC: false }
+        })
+      const sorted = [...players].sort((a, b) => b.score - a.score)
+      const top11  = sorted.slice(0, 11)
+      if (top11.length >= 1) setCapName(top11[0].name)
+      if (top11.length >= 2) setVcName(top11[1].name)
+      setPicked(top11)
+      setStep(2)
+      setActiveTab('field')
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const medal = (idx: number) => idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`
+  const fetchAiPicks = async () => {
+    if (aiAnswer) return
+    setAiLoading(true)
+    try {
+      const names  = picked.map(p => p.name).join(', ')
+      const prompt = `Given these cricket players: ${names}. Format: ${format ?? 'T20'}. Teams: ${teamA || 'Team A'} vs ${teamB || 'Team B'}. Pick the best Fantasy XI (11 players) with captain and vice-captain. Give brief reasons based on recent form and role balance.`
+      const res    = await callAsk(apiBase, { prompt, use_graph: true })
+      setAiAnswer(res.answer)
+      onQuestionAsked?.()
+    } catch (e) {
+      setAiAnswer(`Could not fetch AI picks: ${String(e)}`)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const pickedWithFlags: PickedPlayer[] = picked.map(p => ({
+    ...p,
+    isCap:  p.name === capName,
+    isVC:   p.name === vcName,
+    score:  calcFantasyScore(p.runs, p.wickets, p.sr, p.eco, p.matches, p.name === capName, p.name === vcName),
+  }))
+
+  const byRole = (role: Role) => pickedWithFlags.filter(p => p.role === role)
+
+  // ── Step 1: Squad input ───────────────────────────────────────────────────────
+  if (step === 1) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center space-y-1">
+          <h2 className="text-xl font-bold text-white">Fantasy XI Builder</h2>
+          <p className="text-sm text-slate-400">Add both squads · pick your keeper · get ranked picks</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-start">
+          {/* Team A */}
+          <div className="rounded-2xl p-4 space-y-4"
+            style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-blue-500" />
+              <input
+                className="input flex-1 text-sm"
+                placeholder="Team A name (e.g. India)"
+                value={teamA}
+                onChange={e => setTeamA(e.target.value)}
+              />
+            </div>
+            <SquadBuilder
+              apiBase={apiBase} label="Squad A" players={squadA}
+              onChange={setSquadA} placeholder="Add player…" maxPlayers={15}
+            />
+            {squadA.length > 0 && (
+              <div className="space-y-1">
+                <label className="field-label">Wicketkeeper (A)</label>
+                <select className="input text-sm w-full" value={wkA} onChange={e => setWkA(e.target.value)}>
+                  <option value="">— select keeper —</option>
+                  {squadA.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* VS */}
+          <div className="flex items-center justify-center py-4 md:py-0 md:pt-12">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center font-black text-base"
+              style={{ background: 'rgba(255,107,53,0.15)', color: '#ff6b35', border: '2px solid rgba(255,107,53,0.3)' }}>
+              VS
+            </div>
+          </div>
+
+          {/* Team B */}
+          <div className="rounded-2xl p-4 space-y-4"
+            style={{ background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.2)' }}>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-rose-500" />
+              <input
+                className="input flex-1 text-sm"
+                placeholder="Team B name (e.g. Australia)"
+                value={teamB}
+                onChange={e => setTeamB(e.target.value)}
+              />
+            </div>
+            <SquadBuilder
+              apiBase={apiBase} label="Squad B" players={squadB}
+              onChange={setSquadB} placeholder="Add player…" maxPlayers={15}
+            />
+            {squadB.length > 0 && (
+              <div className="space-y-1">
+                <label className="field-label">Wicketkeeper (B)</label>
+                <select className="input text-sm w-full" value={wkB} onChange={e => setWkB(e.target.value)}>
+                  <option value="">— select keeper —</option>
+                  {squadB.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-xl px-4 py-3 text-sm text-red-400"
+            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+            {error}
+          </div>
+        )}
+
+        <button
+          className="btn-primary w-full py-3 text-base font-bold disabled:opacity-40"
+          disabled={loading || (squadA.length + squadB.length) < 2}
+          onClick={handleBuild}
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              Fetching stats…
+            </span>
+          ) : '⚡ Build Fantasy XI'}
+        </button>
+      </div>
+    )
+  }
+
+  // ── Step 2: Results ───────────────────────────────────────────────────────────
+  const totalScore = pickedWithFlags.reduce((s, p) => s + p.score, 0)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-start gap-4">
-        <div
-          className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 animate-float"
-          style={{ background: 'linear-gradient(135deg,rgba(245,200,66,.2),rgba(255,107,53,.1))', border: '1px solid rgba(245,200,66,.3)' }}
-        >
-          🏆
-        </div>
-        <div className="pt-1">
-          <h2 className="text-2xl font-bold text-white leading-tight" style={{ fontFamily: '"Playfair Display",Georgia,serif' }}>
-            Fantasy XI Builder
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white">
+            {teamA || 'Team A'} <span className="text-slate-500 text-sm font-normal">vs</span> {teamB || 'Team B'}
           </h2>
-          <p className="text-sm text-slate-500 mt-1">Score your squad with AI-powered fantasy picks</p>
+          <p className="text-xs text-slate-400">{pickedWithFlags.length} players · {totalScore.toFixed(1)} total pts</p>
         </div>
+        <button
+          className="text-xs px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition-colors"
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+          onClick={() => { setStep(1); setPicked([]); setAiAnswer('') }}
+        >
+          ↺ Rebuild
+        </button>
       </div>
 
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="glass-strong p-6 space-y-4">
-        <SquadBuilder
-          apiBase={apiBase}
-          label="Add players to score (up to 15)"
-          players={squad}
-          onChange={setSquad}
-          placeholder="Search & add players…"
-          maxPlayers={15}
-        />
-        <button
-          type="submit"
-          disabled={loading || squad.filter(Boolean).length < 2}
-          className="btn-primary w-full"
-        >
-          {loading
-            ? <><span className="animate-spin mr-2">⏳</span>Scoring squad…</>
-            : '🏆 Score & Rank Fantasy XI'}
-        </button>
-      </form>
+      {/* C/VC hint */}
+      <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
+        <span>Tap a card to cycle:</span>
+        <CaptainBadge type="C" /><span>Captain ×2</span>
+        <CaptainBadge type="VC" /><span>Vice-Captain ×1.5</span>
+        <span className="text-slate-600">· tap again to clear</span>
+      </div>
 
-      {error && <div className="glass p-4 text-sm text-red-400 border border-red-500/20 rounded-xl">{error}</div>}
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
+        {(['field', 'list', 'ai'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => { setActiveTab(tab); if (tab === 'ai') fetchAiPicks() }}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold transition-all"
+            style={{
+              background: activeTab === tab ? 'rgba(255,107,53,0.2)' : 'transparent',
+              color: activeTab === tab ? '#ff6b35' : '#64748b',
+            }}
+          >
+            {tab === 'field' ? '🏟 Field View' : tab === 'list' ? '📋 List View' : '🤖 AI Picks'}
+          </button>
+        ))}
+      </div>
 
-      <AnimatePresence>
-        {players && (
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5">
-
-            {/* Tab bar */}
-            <div className="flex gap-2 p-1 rounded-xl w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <button onClick={() => setTab('xi')} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'xi' ? 'bg-amber-500 text-white' : 'text-slate-400'}`}>
-                🏆 Ranked XI
-              </button>
-              <button onClick={() => setTab('ai')} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'ai' ? 'bg-indigo-500 text-white' : 'text-slate-400'}`}>
-                💬 AI Picks {loading ? '⏳' : ''}
-              </button>
+      {/* ── Field View ── */}
+      {activeTab === 'field' && (
+        <div className="rounded-2xl p-4 space-y-5"
+          style={{ background: 'linear-gradient(180deg,rgba(34,197,94,0.07) 0%,rgba(16,185,129,0.03) 100%)', border: '1px solid rgba(34,197,94,0.15)' }}>
+          {(['BOWL', 'AR', 'BAT', 'WK'] as Role[]).map((role, idx, arr) => (
+            <div key={role} className="space-y-2">
+              <p className="text-center text-[10px] text-slate-600 uppercase tracking-widest">
+                {role === 'BOWL' ? 'Bowlers' : role === 'AR' ? 'All-Rounders' : role === 'BAT' ? 'Batters' : 'Wicketkeeper'}
+              </p>
+              <div className="flex flex-wrap justify-center gap-3">
+                {role === 'BAT'
+                  ? byRole('BAT').concat(byRole('?')).map(p => <PlayerCard key={p.name} p={p} onCycle={cycleCapVC} />)
+                  : byRole(role).map(p => <PlayerCard key={p.name} p={p} onCycle={cycleCapVC} />)
+                }
+                {(role === 'BAT'
+                  ? byRole('BAT').length + byRole('?').length
+                  : byRole(role).length) === 0 && (
+                  <span className="text-[11px] text-slate-600 italic">
+                    {role === 'WK' ? 'None — select a keeper in Step 1' : '—'}
+                  </span>
+                )}
+              </div>
+              {idx < arr.length - 1 && (
+                <div className="w-full h-px" style={{ background: 'rgba(255,255,255,0.05)' }} />
+              )}
             </div>
+          ))}
+        </div>
+      )}
 
-            {/* Captain / VC strip */}
-            {tab === 'xi' && captain && (
-              <div className="flex gap-3 flex-wrap">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
-                  style={{ background: 'rgba(245,200,66,0.12)', border: '1px solid rgba(245,200,66,0.25)', color: '#f5c842' }}>
-                  👑 Captain: {captain}
-                  <button
-                    onClick={() => {
-                      const next = players.find(p => p.name !== captain && p.name !== viceCaptain)
-                      if (next) setCaptain(next.name)
-                    }}
-                    className="text-[10px] text-slate-500 hover:text-white ml-1"
-                  >↺</button>
+      {/* ── List View ── */}
+      {activeTab === 'list' && (
+        <div className="space-y-2">
+          {[...pickedWithFlags].sort((a, b) => b.score - a.score).map((p, i) => (
+            <div
+              key={p.name}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all"
+              style={{
+                background: p.isCap ? 'rgba(245,158,11,0.08)' : p.isVC ? 'rgba(167,139,250,0.08)' : 'rgba(255,255,255,0.03)',
+                border: p.isCap ? '1px solid rgba(245,158,11,0.25)' : p.isVC ? '1px solid rgba(167,139,250,0.25)' : '1px solid rgba(255,255,255,0.06)',
+              }}
+              onClick={() => cycleCapVC(p.name)}
+            >
+              <span className="text-xs font-bold text-slate-600 w-5 text-right shrink-0">{i + 1}</span>
+              <div className="w-6 flex items-center justify-center shrink-0">
+                {p.isCap ? <CaptainBadge type="C" /> : p.isVC ? <CaptainBadge type="VC" /> : (
+                  <div className="w-2 h-2 rounded-full" style={{ background: p.team === 'A' ? '#3b82f6' : '#f43f5e' }} />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-white truncate">{p.name}</span>
+                  <RoleBadge role={p.role} />
                 </div>
-                {viceCaptain && (
-                  <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
-                    style={{ background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.25)', color: '#818cf8' }}>
-                    🥈 Vice-Captain: {viceCaptain}
-                    <button
-                      onClick={() => {
-                        const next = players.find(p => p.name !== captain && p.name !== viceCaptain)
-                        if (next) setViceCaptain(next.name)
-                      }}
-                      className="text-[10px] text-slate-500 hover:text-white ml-1"
-                    >↺</button>
-                  </div>
-                )}
+                <div className="text-[10px] text-slate-500 mt-0.5 space-x-2">
+                  {p.runs > 0 && <span>🏏 {p.runs}r</span>}
+                  {p.wickets > 0 && <span>⚾ {p.wickets}w</span>}
+                  {p.sr > 0 && <span>SR {p.sr.toFixed(0)}</span>}
+                  {p.eco > 0 && <span>Eco {p.eco.toFixed(2)}</span>}
+                  {p.matches > 0 && <span>({p.matches} matches)</span>}
+                </div>
               </div>
-            )}
-
-            {/* Ranked list */}
-            {tab === 'xi' && (
-              <div className="space-y-2">
-                {players.map((p, i) => {
-                  const isCap = p.name === captain
-                  const isVC  = p.name === viceCaptain
-                  const effectivePts = isCap ? p.score * 2 : isVC ? p.score * 1.5 : p.score
-                  return (
-                    <motion.div
-                      key={p.name}
-                      initial={{ opacity: 0, x: -16 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
-                      style={{ background: isCap ? 'rgba(245,200,66,0.07)' : isVC ? 'rgba(129,140,248,0.07)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCap ? 'rgba(245,200,66,0.2)' : isVC ? 'rgba(129,140,248,0.2)' : 'rgba(255,255,255,0.06)'}` }}
-                      onClick={() => {
-                        if (!isCap && !isVC) setCaptain(p.name)
-                        else if (isCap) { setCaptain(null) }
-                        else setViceCaptain(null)
-                      }}
-                    >
-                      {/* Rank */}
-                      <span className="text-base w-6 text-center flex-shrink-0">{medal(i)}</span>
-
-                      {/* Initials */}
-                      <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                        style={{ background: isCap ? 'rgba(245,200,66,0.3)' : isVC ? 'rgba(129,140,248,0.3)' : 'rgba(255,107,53,0.2)' }}
-                      >
-                        {p.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
-                      </div>
-
-                      {/* Name + role */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-100 truncate">{p.name}</p>
-                          {isCap && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300">C</span>}
-                          {isVC  && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-400/20 text-indigo-300">VC</span>}
-                        </div>
-                        <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${ROLE_COLOR[p.role]}`}>
-                          {ROLE_LABEL[p.role]}
-                        </span>
-                      </div>
-
-                      {/* Score */}
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-lg font-bold" style={{ color: isCap ? '#f5c842' : '#ff6b35' }}>
-                          {effectivePts.toFixed(1)}
-                        </p>
-                        <p className="text-[9px] text-slate-600 uppercase">pts{isCap ? ' ×2' : isVC ? ' ×1.5' : ''}</p>
-                      </div>
-
-                      {/* Mini bat/bowl bars */}
-                      {p.stats && (
-                        <div className="hidden sm:flex flex-col gap-0.5 w-16 flex-shrink-0">
-                          {p.stats.batter && (
-                            <div className="flex items-center gap-1">
-                              <span className="text-[8px] text-slate-600 w-3">🏏</span>
-                              <div className="flex-1 h-1.5 rounded-full bg-white/5">
-                                <div className="h-full rounded-full bg-orange-400" style={{ width: `${Math.min((p.stats.batter.average / 60) * 100, 100)}%` }} />
-                              </div>
-                            </div>
-                          )}
-                          {p.stats.bowler && (
-                            <div className="flex items-center gap-1">
-                              <span className="text-[8px] text-slate-600 w-3">🎳</span>
-                              <div className="flex-1 h-1.5 rounded-full bg-white/5">
-                                <div className="h-full rounded-full bg-amber-400" style={{ width: `${Math.min((p.stats.bowler.total_wickets / 300) * 100, 100)}%` }} />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </motion.div>
-                  )
-                })}
-
-                <p className="text-[10px] text-slate-600 text-center pt-2">
-                  Click a player to toggle Captain / tap again to clear. Points are based on career averages — not match-day projections.
-                </p>
+              <div className="text-right shrink-0">
+                <div className="text-base font-black" style={{ color: ROLE_COLOR[p.role] }}>{p.score.toFixed(1)}</div>
+                <div className="text-[9px] text-slate-600">pts</div>
               </div>
-            )}
+            </div>
+          ))}
+          <div className="flex items-center gap-4 pt-2 px-1">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500">
+              <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />{teamA || 'Team A'}
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-slate-500">
+              <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />{teamB || 'Team B'}
+            </span>
+          </div>
+        </div>
+      )}
 
-            {/* AI tab */}
-            {tab === 'ai' && (
-              <div className="glass p-6">
-                {loading && (
-                  <div className="space-y-3">
-                    <div className="shimmer-line h-4 w-3/4" />
-                    <div className="shimmer-line h-4 w-full" />
-                    <div className="shimmer-line h-4 w-5/6" />
-                    <div className="shimmer-line h-4 w-2/3 mt-4" />
-                  </div>
-                )}
-                {!loading && aiAnswer && (
-                  <div className="prose prose-invert prose-sm max-w-none text-slate-300">
-                    <ReactMarkdown>{aiAnswer}</ReactMarkdown>
-                  </div>
-                )}
-                {!loading && !aiAnswer && <p className="text-sm text-slate-500">AI picks unavailable.</p>}
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── AI Picks ── */}
+      {activeTab === 'ai' && (
+        <div className="rounded-2xl p-5 space-y-3"
+          style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)' }}>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">��</span>
+            <h3 className="text-sm font-bold text-purple-300">AI Fantasy Picks</h3>
+          </div>
+          {aiLoading ? (
+            <div className="flex items-center gap-3 text-sm text-slate-400">
+              <svg className="w-5 h-5 animate-spin text-purple-400" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              Asking AI for picks…
+            </div>
+          ) : aiAnswer ? (
+            <div className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed whitespace-pre-wrap text-sm">
+              {aiAnswer}
+            </div>
+          ) : (
+            <div className="text-sm text-slate-500">Loading AI analysis…</div>
+          )}
+          {!aiLoading && aiAnswer && (
+            <button
+              className="text-xs px-3 py-1.5 rounded-lg text-purple-400 hover:text-purple-300 transition-colors"
+              style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}
+              onClick={() => { setAiAnswer(''); fetchAiPicks() }}
+            >
+              ↺ Regenerate
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Footer score bar */}
+      <div className="rounded-xl px-4 py-3 flex items-center justify-between text-xs"
+        style={{ background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.12)' }}>
+        <span className="text-slate-400">
+          {capName && <span>C: <strong className="text-amber-400">{capName.split(' ').pop()}</strong></span>}
+          {vcName && <span className="ml-3">VC: <strong className="text-purple-400">{vcName.split(' ').pop()}</strong></span>}
+          {!capName && !vcName && <span className="text-slate-600">Tap a player to assign C / VC</span>}
+        </span>
+        <span className="font-bold text-orange-400">{totalScore.toFixed(1)} pts total</span>
+      </div>
     </div>
   )
 }
