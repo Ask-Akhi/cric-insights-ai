@@ -83,11 +83,11 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
   const [mode, setMode]         = useState<AskMode>('graph')
   const [error, setError]       = useState<string | null>(null)
   const [elapsed, setElapsed]   = useState<number>(0)
+  const [copied, setCopied]     = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setAnswer(null); setError(null); setElapsed(0); setLoading(true)
+    setAnswer(null); setError(null); setElapsed(0); setLoading(true); setCopied(false)
     const start = Date.now()
     timerRef.current = setInterval(() => setElapsed(Date.now() - start), 100)
     try {
@@ -226,8 +226,19 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     <ReactMarkdown>
                       {isCached ? answer.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer}
                     </ReactMarkdown>
-                  </div>
-                  <div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                  </div>                  <div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button
+                      className="btn-ghost"
+                      onClick={() => {
+                        const text = isCached ? answer!.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer!
+                        navigator.clipboard.writeText(text).then(() => {
+                          setCopied(true)
+                          setTimeout(() => setCopied(false), 2000)
+                        })
+                      }}
+                    >
+                      {copied ? '✅ Copied!' : '📋 Copy'}
+                    </button>
                     <button className="btn-ghost" onClick={() => { setAnswer(null); setError(null) }}>↩ Clear</button>
                   </div>
                 </>

@@ -103,6 +103,25 @@ def test_player_stats_format_filter():
     assert r.status_code in (200, 404)
 
 
+def test_player_detect_known():
+    """GET /api/players/detect must return a list of Cricsheet names for a sentence with a known player."""
+    data = ok(client.get("/api/players/detect?text=What+is+Virat+Kohli+T20+average"))
+    assert "players" in data
+    assert isinstance(data["players"], list)
+    # Virat Kohli → V Kohli is in PLAYER_ALIASES — must be detected
+    assert len(data["players"]) > 0, "Expected at least one player detected for 'Virat Kohli'"
+
+def test_player_detect_unknown():
+    """GET /api/players/detect with gibberish must return empty list."""
+    data = ok(client.get("/api/players/detect?text=zzz+unknown+blah+blah"))
+    assert data["players"] == []
+
+def test_player_detect_multiple():
+    """Detect should find up to 3 players in a sentence."""
+    data = ok(client.get("/api/players/detect?text=Compare+Rohit+Sharma+and+Virat+Kohli+in+T20"))
+    assert len(data["players"]) >= 1  # at least one detected
+
+
 # ── 4. Matches ────────────────────────────────────────────────────────────────
 
 def test_list_venues():
@@ -151,7 +170,8 @@ def test_recent_match_shape():
 
 def test_recent_source_valid():
     data = ok(client.get("/api/matches/recent"))
-    assert data["source"] in ("cricsheet", "cricapi", "sportmonks", "rapidapi")
+    valid_sources = {"cricsheet", "cricapi", "sportmonks", "rapidapi", "CricketData", "Cricbuzz"}
+    assert data["source"] in valid_sources, f"Unknown source: {data['source']}"
 
 def test_recent_cricsheet_has_latest_date():
     data = ok(client.get("/api/matches/recent"))

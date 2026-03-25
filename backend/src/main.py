@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, FileResponse
+from contextlib import asynccontextmanager
 import os
 import logging
 import time
@@ -18,7 +19,17 @@ DIST_DIR = os.environ.get(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
 )
 
-app = FastAPI(title="Cric Insights API")
+# ── Lifespan (replaces deprecated @app.on_event) ─────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    port = os.environ.get("PORT", "8080")
+    log.info("Cric Insights API ready on PORT=%s uptime=%.1fs", port, time.time() - _START_TIME)
+    log.info("FRONTEND_DIST=%s exists=%s", DIST_DIR, os.path.isdir(DIST_DIR))
+    if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+        log.warning("No LLM API key set — add GEMINI_API_KEY in Railway Variables")
+    yield  # application runs here
+
+app = FastAPI(title="Cric Insights API", lifespan=lifespan)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
@@ -62,15 +73,6 @@ try:
     log.info("All routers registered successfully.")
 except Exception as _router_err:
     log.error("Router import failed: %s — API routes unavailable, health still OK", _router_err)
-
-# ── Startup log ───────────────────────────────────────────────────────────────
-@app.on_event("startup")
-async def startup_event():
-    port = os.environ.get("PORT", "8080")
-    log.info("Cric Insights API ready on PORT=%s uptime=%.1fs", port, time.time() - _START_TIME)
-    log.info("FRONTEND_DIST=%s exists=%s", DIST_DIR, os.path.isdir(DIST_DIR))
-    if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
-        log.warning("No LLM API key set — add GEMINI_API_KEY in Railway Variables")
 
 # ── Serve React frontend static assets ───────────────────────────────────────
 if os.path.isdir(DIST_DIR):

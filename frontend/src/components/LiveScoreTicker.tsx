@@ -39,27 +39,33 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
   const [source, setSource] = useState('cricsheet')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-
   useEffect(() => {
-    setLoading(true)
-    setError(false)
-    const url = `${apiBase}/api/matches/recent?format=${encodeURIComponent(format)}&limit=12`
-    fetch(url)
-      .then(r => r.json())
-      .then((data: ApiResponse) => {
-        setMatches(Array.isArray(data?.matches) ? data.matches : [])
-        setLatestDate(data?.latest_date ?? '')
-        setDataNote(data?.data_note ?? '')
-        const live = data?.live ?? false
-        setIsLive(live)
-        setSource(data?.source ?? 'cricsheet')
-        onLiveChange?.(live)
-        setLoading(false)
-      })
-      .catch(() => {
-        setError(true)
-        setLoading(false)
-      })
+    let intervalId: ReturnType<typeof setInterval> | null = null
+
+    const load = (showSpinner = false) => {
+      if (showSpinner) { setLoading(true); setError(false) }
+      const url = `${apiBase}/api/matches/recent?format=${encodeURIComponent(format)}&limit=12`
+      fetch(url)
+        .then(r => r.json())
+        .then((data: ApiResponse) => {
+          setMatches(Array.isArray(data?.matches) ? data.matches : [])
+          setLatestDate(data?.latest_date ?? '')
+          setDataNote(data?.data_note ?? '')
+          const live = data?.live ?? false
+          setIsLive(live)
+          setSource(data?.source ?? 'cricsheet')
+          onLiveChange?.(live)
+          setLoading(false)
+          // Auto-refresh every 60s when live data is active
+          if (live && !intervalId) {
+            intervalId = setInterval(() => load(false), 60_000)
+          }
+        })
+        .catch(() => { setError(true); setLoading(false) })
+    }
+
+    load(true)
+    return () => { if (intervalId) clearInterval(intervalId) }
   }, [apiBase, format])
 
   // Format a short date string: "12 Mar 2024" → "Mar 2024"
