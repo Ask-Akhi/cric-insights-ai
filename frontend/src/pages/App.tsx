@@ -171,36 +171,41 @@ export default function App() {
             ))}
           </div>
         </div>
-      )}
-
-      {/* ── Hero Banner — compact on mobile ──────────────────── */}
-      <section className="relative z-10 border-b border-white/[0.05]" style={{ background: 'linear-gradient(180deg, rgba(255,107,53,0.05) 0%, transparent 100%)' }}>
-        <div className="max-w-screen-xl mx-auto px-4 py-6 md:py-12 flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-10">
-
-          {/* Editorial headline */}          <div className="flex-1 animate-slide-up">
-            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
+      )}      {/* ── Hero Banner ───────────────────────────────────── */}
+      <section className="relative z-10 border-b border-white/[0.05]" style={{ background: 'linear-gradient(180deg, rgba(255,107,53,0.06) 0%, transparent 100%)' }}>
+        <div className="max-w-screen-xl mx-auto px-4 pt-8 pb-7 md:pt-14 md:pb-12">
+          {/* Editorial headline */}
+          <div className="animate-slide-up">
+            <div className="inline-flex items-center gap-2 mb-4 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
               style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#ff6b35' }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
               IPL 2026 · AI Insights
             </div>
-            <h2 className="text-3xl md:text-5xl font-bold text-white leading-[1.1] tracking-tight mb-2"
+            <h2 className="text-3xl md:text-5xl font-bold text-white leading-[1.1] tracking-tight mb-3"
               style={{ fontFamily: '"Playfair Display", Georgia, serif' }}>
               Cricket Intelligence,{' '}
               <span style={{ background: 'linear-gradient(135deg, #ff6b35, #f5c842)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 Reimagined.
               </span>
             </h2>
-            <p className="text-slate-400 text-sm leading-relaxed max-w-md hidden sm:block">
-              AI-powered insights for fantasy teams, match predictions, player analysis, and live IPL data — all in one place.            </p>
+            <p className="text-slate-400 text-sm leading-relaxed max-w-md">
+              AI-powered insights for fantasy teams, match predictions,{' '}
+              <span className="hidden sm:inline">player analysis, and live IPL data — </span>
+              all in one place.
+            </p>
           </div>
+        </div>
 
-          {/* Stats ticker — 2×2 on mobile, 4×1 on desktop */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 w-full md:w-auto flex-shrink-0 animate-fade-in">
+        {/* Stats strip — full width below the headline */}
+        <div className="border-t border-white/[0.05]" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <div className="max-w-screen-xl mx-auto px-4 py-3 md:py-4 grid grid-cols-4 gap-0 animate-fade-in divide-x divide-white/[0.05]">
             {STATS.map((s, i) => (
-              <div key={i} className="ticker-card py-3">
-                <div className="text-xl mb-0.5">{s.icon}</div>
-                <div className="text-lg font-bold text-white" style={{ fontFamily: '"Playfair Display", serif' }}>{s.value}</div>
-                <div className="text-[10px] text-slate-500 font-medium tracking-wide uppercase">{s.label}</div>
+              <div key={i} className="flex items-center gap-2 md:gap-3 min-w-0 px-3 md:px-5 first:pl-0">
+                <span className="text-base md:text-xl flex-shrink-0 opacity-80">{s.icon}</span>
+                <div className="min-w-0">
+                  <div className="text-xs md:text-sm font-bold text-white leading-none" style={{ fontFamily: '"Playfair Display", serif' }}>{s.value}</div>
+                  <div className="text-[9px] md:text-[10px] text-slate-500 font-medium tracking-wide uppercase mt-0.5 truncate">{s.label}</div>
+                </div>
               </div>
             ))}
           </div>
