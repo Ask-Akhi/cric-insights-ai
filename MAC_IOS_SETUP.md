@@ -35,9 +35,8 @@ Your Mac has **Xcode 14.0.1** — this is an older version but it **will work** 
 [ ] 10. cd cric-insights-ai/frontend && npm install
 [ ] 11. Set Railway URL:  export VITE_API_URL=https://YOUR-APP.up.railway.app
 [ ] 12. npm run cap:build:ios   (build + sync)
-[ ] 13. npm run cap:pods        (pod install from correct path)
-[ ] 14. npx cap open ios  →  .xcworkspace opens in Xcode
-[ ] 15. Apple ID added, Team set, Bundle ID set to unique value
+[ ] 13. npx cap open ios  →  .xcworkspace opens in Xcode (SPM auto-resolves, no pod install needed)
+[ ] 14. Apple ID added, Team set, Bundle ID set to unique value
 [ ] 16. iPhone plugged in via USB + "Trust" tapped
 [ ] 17. ▶ clicked in Xcode → App running on iPhone 🎉
 ```
@@ -176,22 +175,13 @@ This runs `vite build --mode capacitor` then `npx cap sync ios` automatically.
 
 ---
 
-## STEP 8 — Install iOS Native Pods
+## STEP 8 — ~~Install iOS Native Pods~~ (SKIP — not needed!)
 
-> ⚠️ **Run this from the `frontend` folder** — NOT from inside `ios/App` directly.
+> ✅ **This project uses Swift Package Manager (SPM), NOT CocoaPods.**
+> The `CapApp-SPM/Package.swift` file handles all native dependencies automatically.
+> **You do NOT need to run `pod install`** — Xcode downloads SPM packages on its own when you open the project.
 
-```bash
-npm run cap:pods
-```
-
-This is equivalent to `cd ios/App && pod install && cd ../..`.
-
-> ℹ️ **Note:** The `Podfile` lives at `ios/App/Podfile` — standard Capacitor location.
-
-First run takes 1–3 min. You'll see:
-```
-Pod installation complete! There are X dependencies from the Podfile
-```
+Skip straight to Step 9 ↓
 
 ---
 
