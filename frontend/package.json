@@ -15,8 +15,7 @@
     "cap:build": "npm run cap:sync && npx cap open android",
     "cap:sync:ios": "npm run build:capacitor && npx cap sync ios",
     "cap:open:ios": "npx cap open ios",
-    "cap:build:ios": "npm run cap:sync:ios",
-    "cap:pods": "cd ios/App && pod install && cd ../..",
+    "cap:build:ios": "npm run cap:sync:ios",    "cap:pods": "cd ios/App/App && pod install && cd ../../..",
     "cap:ios:full": "npm run cap:build:ios && npm run cap:pods && npx cap open ios"
   },
   "dependencies": {

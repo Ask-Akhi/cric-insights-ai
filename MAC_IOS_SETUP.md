@@ -184,7 +184,9 @@ This runs `vite build --mode capacitor` then `npx cap sync ios` automatically.
 npm run cap:pods
 ```
 
-This is equivalent to `cd ios/App && pod install && cd ../..`.
+This is equivalent to `cd ios/App/App && pod install && cd ../../..`.
+
+> ℹ️ **Note:** The `Podfile` lives at `ios/App/App/Podfile` (one level deeper than you might expect from the Capacitor docs). The script has been updated to point there.
 
 First run takes 1–3 min. You'll see:
 ```
