@@ -5,7 +5,7 @@
   "type": "module",  "engines": {
     "node": ">=22.0.0"
   },  "scripts": {
-    "postinstall": "node -e \"const fs=require('fs'),p='node_modules/@capacitor/splash-screen/Package.swift';if(fs.existsSync(p)){let c=fs.readFileSync(p,'utf8');if(c.includes('swift-tools-version: 5.9')){fs.writeFileSync(p,c.replace('swift-tools-version: 5.9','swift-tools-version: 5.7'));console.log('Patched splash-screen Package.swift: 5.9->5.7 for Xcode 14')}}\"",
+    "postinstall": "node scripts/patch-spm.cjs",
     "dev": "vite",
     "build": "vite build",
     "build:capacitor": "vite build --mode capacitor",
