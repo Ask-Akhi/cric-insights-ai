@@ -1,16 +1,26 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
+// Set VITE_API_URL to your Railway URL before building for device
+// e.g.  $env:VITE_API_URL = "https://your-app.up.railway.app"
+const RAILWAY_URL = process.env.VITE_API_URL ?? 'https://your-app.up.railway.app'
+
 const config: CapacitorConfig = {
   appId: 'com.cricketinsights.app',
   appName: 'Cricket Insights AI',
   webDir: 'dist',
   server: {
-    // Always use HTTPS on device; cleartext HTTP is blocked by Android by default
-    androidScheme: 'https',
+    // On device, point directly at Railway backend
+    url: RAILWAY_URL,
     cleartext: false,
   },
   android: {
     backgroundColor: '#0f172a',
+  },
+  ios: {
+    backgroundColor: '#0f172a',
+    contentInset: 'always',
+    // Required for older Xcode/iOS: allow mixed content from Railway HTTPS
+    allowsLinkPreview: false,
   },
   plugins: {
     SplashScreen: {
@@ -21,6 +31,9 @@ const config: CapacitorConfig = {
       showSpinner: false,
       splashFullScreen: true,
       splashImmersive: true,
+      // iOS splash
+      iosSpinnerStyle: 'small',
+      spinnerColor: '#ff6b35',
     },
   },
 }

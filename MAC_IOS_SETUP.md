@@ -6,7 +6,253 @@
 
 ---
 
+## ⚠️ OLD MAC / XCODE 14 SPECIFIC NOTES (Read First!)
+
+Your Mac has **Xcode 14.0.1** — this is an older version but it **will work** for USB testing on your iPhone. A few things to know:
+
+| Issue | What to do |
+|---|---|
+| Homebrew `formula.jws.json` error | Already fixed with `brew update-reset` ✅ |
+| `ada-url` / `llvm` takes hours to compile | **Use nvm instead of Homebrew for Node** (see Step 2 below) |
+| Xcode 14.0.1 can't build for iOS 17+ simulators | Use your physical iPhone via USB — works fine |
+| CocoaPods may conflict with system Ruby | Use `sudo gem install cocoapods` then `pod --version` |
+| `npx cap sync ios` may warn about Capacitor 8 + Xcode 14 | It still works — ignore the warning |
+
+---
+
 ## ✅ Quick Checklist (copy to Notes app on Mac)
+
+```
+[ ] 1.  brew update-reset done ✅ (already completed)
+[ ] 2.  Install Node via nvm (NOT brew install node)
+[ ] 3.  sudo xcodebuild -license accept
+[ ] 4.  xcode-select --install
+[ ] 5.  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+[ ] 6.  xcodebuild -version  → shows Xcode 14.x
+[ ] 7.  sudo gem install cocoapods  →  pod --version works
+[ ] 8.  git clone https://github.com/Ask-Akhi/cric-insights-ai.git
+[ ] 9.  cd cric-insights-ai/frontend && npm install
+[ ] 10. Set Railway URL:  export VITE_API_URL=https://YOUR-APP.up.railway.app
+[ ] 11. npm run cap:build:ios   (builds + syncs in one command)
+[ ] 12. cd ios/App && pod install
+[ ] 13. npx cap open ios  →  .xcworkspace opens in Xcode
+[ ] 14. Apple ID added, Team set, Bundle ID set to unique value
+[ ] 15. iPhone plugged in via USB + "Trust" tapped
+[ ] 16. ▶ clicked in Xcode → App running on iPhone 🎉
+```
+
+---
+
+## STEP 1 — Xcode Setup (already installed)
+
+Since Homebrew update-reset is done, just accept the Xcode license:
+
+```bash
+sudo xcodebuild -license accept
+xcode-select --install
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+xcodebuild -version
+```
+✅ Should print `Xcode 14.x`. That's fine for USB iPhone testing.
+
+---
+
+## STEP 2 — Install Node via nvm (SKIP brew install node)
+
+> ⚠️ **Do NOT use `brew install node`** on your old Mac — it tries to compile `ada-url` via `llvm` which takes 2+ hours. Use `nvm` instead — it downloads a pre-built binary in 30 seconds.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+```
+
+**Close Terminal and reopen it**, then:
+
+```bash
+nvm install 20
+nvm use 20
+node -v   # should print v20.x.x
+npm -v    # should print 10.x.x
+```
+
+---
+
+## STEP 3 — Install CocoaPods
+
+```bash
+sudo gem install cocoapods
+pod --version
+```
+✅ Should print `1.x.x`.
+
+If it fails with SSL error:
+```bash
+sudo gem update --system
+sudo gem install cocoapods --source https://rubygems.org
+```
+
+---
+
+## STEP 4 — Clone the Repo on Mac
+
+```bash
+cd ~
+git clone https://github.com/Ask-Akhi/cric-insights-ai.git
+cd cric-insights-ai/frontend
+```
+
+---
+
+## STEP 5 — Install npm Packages
+
+```bash
+npm install
+```
+✅ Should end with no errors (some warnings are fine).
+
+---
+
+## STEP 6 — Set Your Railway URL (IMPORTANT)
+
+The app on iPhone needs to call your live Railway backend. Set this before building:
+
+```bash
+export VITE_API_URL=https://YOUR-ACTUAL-APP.up.railway.app
+```
+
+> Replace `YOUR-ACTUAL-APP` with your real Railway app URL (find it in the Railway dashboard).
+> To make it permanent, add that line to `~/.zshrc` and run `source ~/.zshrc`.
+
+---
+
+## STEP 7 — Build + Sync iOS (one command)
+
+```bash
+npm run cap:build:ios
+```
+
+This runs `vite build --mode capacitor` then `npx cap sync ios` automatically.
+
+✅ Should end with:
+```
+✔  Copying web assets from dist to ios/App/App/public
+✔  Updating iOS native dependencies
+```
+
+---
+
+## STEP 8 — Install iOS Native Pods
+
+```bash
+cd ios/App
+pod install
+```
+First run takes 1–3 min. You'll see:
+```
+Pod installation complete! There are X dependencies from the Podfile
+```
+
+Go back:
+```bash
+cd ../..
+```
+
+---
+
+## STEP 9 — Open in Xcode
+
+```bash
+npx cap open ios
+```
+
+> ⚠️ Always use `.xcworkspace` NOT `.xcodeproj`. If Xcode opens the wrong one:
+> ```bash
+> open ~/cric-insights-ai/frontend/ios/App/App.xcworkspace
+> ```
+
+---
+
+## STEP 10 — Sign with Apple ID (free, no $99 needed)
+
+In Xcode:
+1. Click the **App** project (blue icon, top of sidebar)
+2. **TARGETS → App → Signing & Capabilities**
+3. ✅ Check **Automatically manage signing**
+4. **Team** → **Add an Account** → sign in with Apple ID
+5. Change **Bundle Identifier** to something unique:
+   ```
+   com.akhi2026.cricinsightsai
+   ```
+
+---
+
+## STEP 11 — Connect iPhone + Run
+
+1. Plug iPhone into Mac via USB → tap **Trust** on iPhone
+2. In Xcode top toolbar: click device selector → choose your iPhone
+3. Click **▶ Play**
+
+Xcode compiles (~60–120 seconds on Xcode 14) then installs on your iPhone.
+
+> **"Untrusted Developer" on iPhone?**
+> Settings → General → VPN & Device Management → [Your Apple ID] → **Trust**
+> Then press ▶ in Xcode again.
+
+🎉 **Cricket Insights AI is running on your iPhone!**
+
+---
+
+## 🔄 Updating After Code Changes (Windows → iPhone)
+
+### On Windows PC:
+```powershell
+cd "c:\Users\1223505\Personal Apps\frontend"
+git add -A
+git commit -m "update: ..."
+git push origin master
+```
+
+### On Mac (pull + rebuild + reinstall):
+```bash
+cd ~/cric-insights-ai
+git pull origin master
+cd frontend
+export VITE_API_URL=https://YOUR-APP.up.railway.app
+npm run cap:build:ios
+npx cap open ios
+```
+Then click **▶** in Xcode.
+
+---
+
+## 🐞 Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `node` not found after nvm install | Close & reopen Terminal, run `nvm use 20` |
+| `xcodebuild -version` shows wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
+| `pod install` fails SSL error | `sudo gem update --system && sudo gem install cocoapods` |
+| `pod install` hangs | `pod install --repo-update` |
+| `npx cap sync ios` — "ios platform not found" | `npx cap add ios` then redo pod install |
+| Xcode "No account" under Team | Xcode → Settings (⌘,) → Accounts → + → add Apple ID |
+| "Untrusted Developer" on iPhone | Settings → General → VPN & Device Management → Trust |
+| Bundle ID red error | Use more unique ID: `com.akhi2026.cricinsightsai2` |
+| App loads but API calls fail | Check `VITE_API_URL` was set before `npm run cap:build:ios` |
+| App crashes on launch | Xcode → View → Debug Area → Activate Console |
+| iPhone not in device selector | Unplug → replug → wait for Trust prompt |
+| Xcode 14 warning about Swift version | Ignore — doesn't block the build |
+
+---
+
+## 📋 Free vs Paid Apple Developer
+
+| Feature | Free Apple ID | $99/yr |
+|---|:---:|:---:|
+| Run on your iPhone via USB | ✅ | ✅ |
+| App expires every 7 days (re-run ▶) | ⚠️ | ❌ |
+| TestFlight / share with others | ❌ | ✅ |
+| App Store publish | ❌ | ✅ |
+
+> **For personal testing, the free Apple ID is fine.**
 
 ```
 [ ] 1.  Xcode opened & license accepted (GUI)

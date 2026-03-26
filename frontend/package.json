@@ -3,14 +3,16 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
+  "scripts": {    "dev": "vite",
     "build": "vite build",
     "build:capacitor": "vite build --mode capacitor",
     "preview": "vite preview",
     "cap:sync": "npm run build:capacitor && npx cap sync android",
     "cap:open": "npx cap open android",
-    "cap:build": "npm run cap:sync && npx cap open android"
+    "cap:build": "npm run cap:sync && npx cap open android",
+    "cap:sync:ios": "npm run build:capacitor && npx cap sync ios",
+    "cap:open:ios": "npx cap open ios",
+    "cap:build:ios": "npm run cap:sync:ios && npx cap open ios"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
