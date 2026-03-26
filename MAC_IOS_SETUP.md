@@ -15,7 +15,7 @@ Your Mac has **Xcode 14.0.1** — this is an older version but it **will work** 
 | Homebrew `formula.jws.json` error | Already fixed with `brew update-reset` ✅ |
 | `ada-url` / `llvm` takes hours to compile | **Use nvm instead of Homebrew for Node** (see Step 2 below) |
 | Xcode 14.0.1 can't build for iOS 17+ simulators | Use your physical iPhone via USB — works fine |
-| CocoaPods may conflict with system Ruby | Use `sudo gem install cocoapods` then `pod --version` |
+| CocoaPods fails — `ffi` / Ruby 2.6 too old | **Install Ruby 3.2 via rbenv first** (see Step 3 below) |
 | `npx cap sync ios` may warn about Capacitor 8 + Xcode 14 | It still works — ignore the warning |
 
 ---
@@ -29,7 +29,8 @@ Your Mac has **Xcode 14.0.1** — this is an older version but it **will work** 
 [ ] 4.  xcode-select --install
 [ ] 5.  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 [ ] 6.  xcodebuild -version  → shows Xcode 14.x
-[ ] 7.  sudo gem install cocoapods  →  pod --version works
+[ ] 7.  brew install rbenv ruby-build → rbenv install 3.2.2 → rbenv global 3.2.2
+[ ] 8.  gem install cocoapods  →  pod --version works
 [ ] 8.  git clone https://github.com/Ask-Akhi/cric-insights-ai.git
 [ ] 9.  cd cric-insights-ai/frontend && npm install
 [ ] 10. Set Railway URL:  export VITE_API_URL=https://YOUR-APP.up.railway.app
@@ -76,18 +77,43 @@ npm -v    # should print 10.x.x
 
 ---
 
-## STEP 3 — Install CocoaPods
+## STEP 3 — Install Ruby 3 + CocoaPods
 
+> ⚠️ **macOS system Ruby is 2.6 — too old for CocoaPods 1.16.**
+> `sudo gem install cocoapods` will fail with an `ffi` error.
+> Fix: install Ruby 3 via `rbenv` (fast, no compilation).
+
+### 3a. Install rbenv + Ruby 3.2
 ```bash
-sudo gem install cocoapods
+brew install rbenv ruby-build
+rbenv install 3.2.2
+rbenv global 3.2.2
+```
+
+**Close Terminal and reopen it**, then verify:
+```bash
+ruby -v
+```
+✅ Should print `ruby 3.2.x` — NOT `ruby 2.6`.
+
+If `ruby -v` still shows 2.6, add rbenv to your shell:
+```bash
+echo 'eval "$(rbenv init - zsh)"' >> ~/.zshrc
+source ~/.zshrc
+ruby -v
+```
+
+### 3b. Install CocoaPods with the new Ruby
+```bash
+gem install cocoapods
 pod --version
 ```
-✅ Should print `1.x.x`.
+✅ Should print `1.16.x`. No `sudo` needed with rbenv.
 
-If it fails with SSL error:
+If it still fails with ffi error:
 ```bash
-sudo gem update --system
-sudo gem install cocoapods --source https://rubygems.org
+gem install ffi -v 1.17.3
+gem install cocoapods
 ```
 
 ---
@@ -231,6 +257,7 @@ Then click **▶** in Xcode.
 | `node` not found after nvm install | Close & reopen Terminal, run `nvm use 20` |
 | `xcodebuild -version` shows wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 | `pod install` fails SSL error | `sudo gem update --system && sudo gem install cocoapods` |
+| `pod install` fails — `ffi` Ruby 2.6 error | `brew install rbenv ruby-build && rbenv install 3.2.2 && rbenv global 3.2.2` then reopen Terminal and run `gem install cocoapods` |
 | `pod install` hangs | `pod install --repo-update` |
 | `npx cap sync ios` — "ios platform not found" | `npx cap add ios` then redo pod install |
 | Xcode "No account" under Team | Xcode → Settings (⌘,) → Accounts → + → add Apple ID |
