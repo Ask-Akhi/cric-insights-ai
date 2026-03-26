@@ -31,15 +31,15 @@ Your Mac has **Xcode 14.0.1** — this is an older version but it **will work** 
 [ ] 6.  xcodebuild -version  → shows Xcode 14.x
 [ ] 7.  brew install rbenv ruby-build → rbenv install 3.2.2 → rbenv global 3.2.2
 [ ] 8.  gem install cocoapods  →  pod --version works
-[ ] 8.  git clone https://github.com/Ask-Akhi/cric-insights-ai.git
-[ ] 9.  cd cric-insights-ai/frontend && npm install
-[ ] 10. Set Railway URL:  export VITE_API_URL=https://YOUR-APP.up.railway.app
-[ ] 11. npm run cap:build:ios   (builds + syncs in one command)
-[ ] 12. cd ios/App && pod install
-[ ] 13. npx cap open ios  →  .xcworkspace opens in Xcode
-[ ] 14. Apple ID added, Team set, Bundle ID set to unique value
-[ ] 15. iPhone plugged in via USB + "Trust" tapped
-[ ] 16. ▶ clicked in Xcode → App running on iPhone 🎉
+[ ] 9.  git clone https://github.com/Ask-Akhi/cric-insights-ai.git
+[ ] 10. cd cric-insights-ai/frontend && npm install
+[ ] 11. Set Railway URL:  export VITE_API_URL=https://YOUR-APP.up.railway.app
+[ ] 12. npm run cap:build:ios   (build + sync)
+[ ] 13. npm run cap:pods        (pod install from correct path)
+[ ] 14. npx cap open ios  →  .xcworkspace opens in Xcode
+[ ] 15. Apple ID added, Team set, Bundle ID set to unique value
+[ ] 16. iPhone plugged in via USB + "Trust" tapped
+[ ] 17. ▶ clicked in Xcode → App running on iPhone 🎉
 ```
 
 ---
@@ -61,6 +61,8 @@ xcodebuild -version
 ## STEP 2 — Install Node via nvm (SKIP brew install node)
 
 > ⚠️ **Do NOT use `brew install node`** on your old Mac — it tries to compile `ada-url` via `llvm` which takes 2+ hours. Use `nvm` instead — it downloads a pre-built binary in 30 seconds.
+>
+> ⚠️ **Capacitor 8 requires Node ≥ 22** — do NOT install Node 20.
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
@@ -69,10 +71,18 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 **Close Terminal and reopen it**, then:
 
 ```bash
-nvm install 20
-nvm use 20
-node -v   # should print v20.x.x
+nvm install 22
+nvm use 22
+node -v   # must print v22.x.x
 npm -v    # should print 10.x.x
+```
+
+If you already installed Node 20, upgrade now:
+```bash
+nvm install 22
+nvm alias default 22
+nvm use 22
+node -v
 ```
 
 ---
@@ -168,18 +178,17 @@ This runs `vite build --mode capacitor` then `npx cap sync ios` automatically.
 
 ## STEP 8 — Install iOS Native Pods
 
+> ⚠️ **Run this from the `frontend` folder** — NOT from inside `ios/App` directly.
+
 ```bash
-cd ios/App
-pod install
+npm run cap:pods
 ```
+
+This is equivalent to `cd ios/App && pod install && cd ../..`.
+
 First run takes 1–3 min. You'll see:
 ```
 Pod installation complete! There are X dependencies from the Podfile
-```
-
-Go back:
-```bash
-cd ../..
 ```
 
 ---
@@ -254,7 +263,8 @@ Then click **▶** in Xcode.
 
 | Problem | Fix |
 |---|---|
-| `node` not found after nvm install | Close & reopen Terminal, run `nvm use 20` |
+| `node` not found after nvm install | Close & reopen Terminal, run `nvm use 22` |
+| `[fatal] Capacitor CLI requires NodeJS >=22` | `nvm install 22 && nvm alias default 22 && nvm use 22` |
 | `xcodebuild -version` shows wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 | `pod install` fails SSL error | `sudo gem update --system && sudo gem install cocoapods` |
 | `pod install` fails — `ffi` Ruby 2.6 error | `brew install rbenv ruby-build && rbenv install 3.2.2 && rbenv global 3.2.2` then reopen Terminal and run `gem install cocoapods` |
