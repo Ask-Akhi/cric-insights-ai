@@ -191,10 +191,28 @@ Skip straight to Step 9 ↓
 npx cap open ios
 ```
 
-> ⚠️ Always use `.xcworkspace` NOT `.xcodeproj`. If Xcode opens the wrong one:
+> ⚠️ **CRITICAL: Xcode must open `.xcworkspace` NOT `.xcodeproj`**
+>
+> Look at the **Xcode window title bar** after it opens:
+> - ✅ Correct: `App.xcworkspace` — SPM resolves, "Reset Package Caches" is clickable
+> - ❌ Wrong: `App.xcodeproj` — "Missing package product 'CapApp-SPM'" error, menu items greyed out
+>
+> If the wrong file opened (or to be sure), force-open the workspace manually:
 > ```bash
+> osascript -e 'quit app "Xcode"'
 > open ~/cric-insights-ai/frontend/ios/App/App.xcworkspace
 > ```
+>
+> After Xcode reopens with `.xcworkspace`, **wait 30–60 seconds** for SPM to auto-resolve packages (watch the progress spinner in the top toolbar). Only then click ▶.
+>
+> **If SPM fails to resolve / "CapApp-SPM" still missing:**
+> ```bash
+> osascript -e 'quit app "Xcode"'
+> rm -rf ~/Library/Caches/org.swift.swiftpm
+> rm -rf ~/cric-insights-ai/frontend/ios/App/.build
+> open ~/cric-insights-ai/frontend/ios/App/App.xcworkspace
+> ```
+> Wait for SPM again → then ▶.
 
 ---
 
@@ -258,6 +276,9 @@ Then click **▶** in Xcode.
 | `node` not found after nvm install | Close & reopen Terminal, run `nvm use 22` |
 | `[fatal] Capacitor CLI requires NodeJS >=22` | `nvm install 22 && nvm alias default 22 && nvm use 22` |
 | **Xcode: "project cannot be opened — future Xcode format"** | Already fixed in repo (`objectVersion` downgraded). Run `git pull origin master` then reopen |
+| **"Missing package product 'CapApp-SPM'"** | You opened `.xcodeproj` — quit Xcode and open `.xcworkspace` instead: `open ~/cric-insights-ai/frontend/ios/App/App.xcworkspace` |
+| **"Reset Package Caches" is greyed out** | Same fix — you need `.xcworkspace` open, not `.xcodeproj` |
+| **SPM doesn't resolve after opening `.xcworkspace`** | Clear SPM cache: `rm -rf ~/Library/Caches/org.swift.swiftpm && rm -rf ~/cric-insights-ai/frontend/ios/App/.build` then reopen workspace |
 | `xcodebuild -version` shows wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 | `pod install` fails SSL error | `sudo gem update --system && sudo gem install cocoapods` |
 | `pod install` fails — `ffi` Ruby 2.6 error | `brew install rbenv ruby-build && rbenv install 3.2.2 && rbenv global 3.2.2` then reopen Terminal and run `gem install cocoapods` |
@@ -269,6 +290,7 @@ Then click **▶** in Xcode.
 | App loads but API calls fail | Check `VITE_API_URL` was set before `npm run cap:build:ios` |
 | App crashes on launch | Xcode → View → Debug Area → Activate Console |
 | iPhone not in device selector | Unplug → replug → wait for Trust prompt |
+| iPhone not recognised at all | Try a different USB cable — charge-only cables won't work, use a data cable |
 | Xcode 14 warning about Swift version | Ignore — doesn't block the build |
 
 ---
