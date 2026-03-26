@@ -2,6 +2,8 @@
 FROM node:20-slim AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
+# Copy postinstall scripts before npm ci so they exist when postinstall runs
+COPY frontend/scripts/ ./scripts/
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build

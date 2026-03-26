@@ -7,8 +7,17 @@
  *
  * Runs automatically via the "postinstall" npm script after every npm install.
  * Safe to run multiple times (idempotent).
+ *
+ * NO-OP on non-macOS environments (Docker/Linux/Windows) — the Package.swift
+ * files are only used by Xcode on macOS and don't exist in those environments.
  */
 'use strict';
+
+// Only needed on macOS — skip silently everywhere else (Docker, CI, Windows)
+if (process.platform !== 'darwin') {
+  console.log('[patch-spm] Non-macOS platform (' + process.platform + ') — skipping SPM patch.');
+  process.exit(0);
+}
 const fs = require('fs');
 const path = require('path');
 
