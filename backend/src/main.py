@@ -64,11 +64,12 @@ def health():
     }
 
 # ── Routers — let import errors surface so Railway logs show the real cause ───
-from .routers import players, matches, insights, ask  # noqa: E402
+from .routers import players, matches, insights, ask, admin  # noqa: E402
 app.include_router(players.router,  prefix="/api/players",  tags=["players"])
 app.include_router(matches.router,  prefix="/api/matches",  tags=["matches"])
 app.include_router(insights.router, prefix="/api/insights", tags=["insights"])
 app.include_router(ask.router,      prefix="/api/ask",      tags=["ask"])
+app.include_router(admin.router,    prefix="/api/admin",    tags=["admin"])
 log.info("All routers registered successfully.")
 
 # ── Serve React frontend static assets ───────────────────────────────────────
