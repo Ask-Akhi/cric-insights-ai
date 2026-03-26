@@ -257,6 +257,7 @@ Then click **▶** in Xcode.
 |---|---|
 | `node` not found after nvm install | Close & reopen Terminal, run `nvm use 22` |
 | `[fatal] Capacitor CLI requires NodeJS >=22` | `nvm install 22 && nvm alias default 22 && nvm use 22` |
+| **Xcode: "project cannot be opened — future Xcode format"** | Already fixed in repo (`objectVersion` downgraded). Run `git pull origin master` then reopen |
 | `xcodebuild -version` shows wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 | `pod install` fails SSL error | `sudo gem update --system && sudo gem install cocoapods` |
 | `pod install` fails — `ffi` Ruby 2.6 error | `brew install rbenv ruby-build && rbenv install 3.2.2 && rbenv global 3.2.2` then reopen Terminal and run `gem install cocoapods` |
