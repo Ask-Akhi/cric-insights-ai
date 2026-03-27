@@ -13,10 +13,10 @@
     "cap:sync": "npm run build:capacitor && npx cap sync android",
     "cap:open": "npx cap open android",
     "cap:build": "npm run cap:sync && npx cap open android",    "cap:sync:ios": "npm run build:capacitor && npx cap sync ios && node scripts/patch-spm.cjs",
-    "cap:open:ios": "npx cap open ios",
+    "cap:open:ios": "node scripts/patch-spm.cjs && npx cap open ios",
     "cap:build:ios": "npm run cap:sync:ios",
     "cap:pods": "echo 'This project uses SPM (Swift Package Manager), not CocoaPods. pod install is not needed. Xcode resolves SPM deps automatically on open.'",
-    "cap:ios:full": "npm run cap:build:ios && npx cap open ios"
+    "cap:ios:full": "npm run cap:build:ios && npm run cap:open:ios"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
