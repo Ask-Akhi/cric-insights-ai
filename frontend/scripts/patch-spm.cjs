@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * scripts/patch-spm.cjs
  *
@@ -23,18 +23,19 @@ if (process.platform !== 'darwin') {
   process.exit(0);
 }
 
-const fs = require('fs');
-const path = require('path');
+var fs = require('fs');
+var path = require('path');
 
 // Recursively find all Package.swift files under a directory
 function findPackageSwift(dir, results) {
   results = results || [];
   if (!fs.existsSync(dir)) return results;
-  let entries;
+  var entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
   catch (_) { return results; }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    var full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       findPackageSwift(full, results);
     } else if (entry.name === 'Package.swift') {
@@ -44,24 +45,25 @@ function findPackageSwift(dir, results) {
   return results;
 }
 
-const capacitorModulesDir = path.join(__dirname, '..', 'node_modules', '@capacitor');
-const allPackageSwift = findPackageSwift(capacitorModulesDir);
+var capacitorModulesDir = path.join(__dirname, '..', 'node_modules', '@capacitor');
+var allPackageSwift = findPackageSwift(capacitorModulesDir);
 
 if (allPackageSwift.length === 0) {
   console.log('[patch-spm] No Package.swift files found under node_modules/@capacitor/ -- skipping.');
   process.exit(0);
 }
 
-let patched = 0;
-let alreadyOk = 0;
+var patched = 0;
+var alreadyOk = 0;
 
-for (const filePath of allPackageSwift) {
-  const original = fs.readFileSync(filePath, 'utf8');
-  if (!original.includes('swift-tools-version: 5.9')) {
+for (var j = 0; j < allPackageSwift.length; j++) {
+  var filePath = allPackageSwift[j];
+  var original = fs.readFileSync(filePath, 'utf8');
+  if (original.indexOf('swift-tools-version: 5.9') === -1) {
     alreadyOk++;
     continue;
   }
-  const fixed = original.replace(/swift-tools-version:\s*5\.9/g, 'swift-tools-version: 5.7');
+  var fixed = original.replace(/swift-tools-version:\s*5\.9/g, 'swift-tools-version: 5.7');
   fs.writeFileSync(filePath, fixed, 'utf8');
   console.log('[patch-spm] Patched 5.9 -> 5.7: ' + filePath);
   patched++;

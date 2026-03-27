@@ -169,7 +169,20 @@ try:
 
     patch_spm_path = ROOT / "frontend" / "scripts" / "patch-spm.cjs"
     if patch_spm_path.exists():
-        patch_spm_src = patch_spm_path.read_text(encoding="utf-8")
+        # Check for UTF-8 BOM (0xEF 0xBB 0xBF) -- Node.js throws SyntaxError on BOM
+        raw_bytes = patch_spm_path.read_bytes()
+        has_bom = raw_bytes[:3] == b'\xef\xbb\xbf'
+        check(
+            "patch-spm.cjs has no UTF-8 BOM",
+            not has_bom,
+            detail=(
+                "patch-spm.cjs starts with a UTF-8 BOM (written by PowerShell WriteAllText with default UTF8 encoding). "
+                "Node.js throws 'SyntaxError: Invalid or unexpected token' on BOM. "
+                "Fix: use New-Object System.Text.UTF8Encoding $false when writing the file."
+            )
+        )
+
+        patch_spm_src = patch_spm_path.read_text(encoding="utf-8-sig")  # utf-8-sig strips BOM if present
         is_guarded = (
             "process.platform" in patch_spm_src
             and "darwin" in patch_spm_src
