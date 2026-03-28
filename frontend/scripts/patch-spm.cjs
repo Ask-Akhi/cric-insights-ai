@@ -2,71 +2,83 @@
 /**
  * scripts/patch-spm.cjs
  *
- * Patches ALL Package.swift files under node_modules/@capacitor/ from
- * swift-tools-version: 5.9 -> 5.7 so Xcode 14 (max Swift tools 5.7) can
- * resolve every SPM package in the CapApp-SPM dependency graph.
+ * Ensures Xcode 14 (max Swift tools 5.7) can resolve all @capacitor SPM packages.
+ *
+ * Strategy: copy the vendored ios/vendor/splash-screen-Package.swift (5.7, iOS 13)
+ * directly over node_modules/@capacitor/splash-screen/Package.swift, which ships
+ * as 5.9 from npm and cannot be changed via npm.
+ *
+ * Also does a regex fallback patch on any other @capacitor Package.swift files
+ * that still declare swift-tools-version: 5.9.
  *
  * Runs automatically via:
  *   - "postinstall" npm script  (after npm install)
- *   - "cap:sync:ios" npm script (after npx cap sync ios regenerates Package.swift)
+ *   - "cap:sync:ios" npm script (after npx cap sync ios)
+ *   - "cap:open:ios" npm script (before open App.xcworkspace)
  *
  * Safe to run multiple times (idempotent).
- *
- * NO-OP on non-macOS environments (Docker/Linux/Windows) -- Package.swift files
- * are only consumed by Xcode on macOS.
+ * NO-OP on non-macOS (Docker/Linux/Windows).
  */
 'use strict';
 
-// Only needed on macOS -- skip silently everywhere else (Docker, CI, Windows)
 if (process.platform !== 'darwin') {
-  console.log('[patch-spm] Non-macOS platform (' + process.platform + ') -- skipping SPM patch.');
+  console.log('[patch-spm] Non-macOS (' + process.platform + ') -- skipping.');
   process.exit(0);
 }
 
 var fs = require('fs');
 var path = require('path');
 
-// Recursively find all Package.swift files under a directory
+var frontendDir = path.join(__dirname, '..');
+var vendorFile  = path.join(frontendDir, 'ios', 'vendor', 'splash-screen-Package.swift');
+var targetFile  = path.join(frontendDir, 'node_modules', '@capacitor', 'splash-screen', 'Package.swift');
+
+// -- Step 1: copy vendored Package.swift over the npm one --------------------
+if (!fs.existsSync(vendorFile)) {
+  console.error('[patch-spm] ERROR: vendored file missing: ' + vendorFile);
+  console.error('[patch-spm] Run: git pull origin master');
+  process.exit(1);
+}
+
+if (!fs.existsSync(targetFile)) {
+  console.log('[patch-spm] node_modules/@capacitor/splash-screen not installed yet -- skipping copy.');
+} else {
+  var vendored = fs.readFileSync(vendorFile, 'utf8');
+  var current  = fs.readFileSync(targetFile, 'utf8');
+  if (current === vendored) {
+    console.log('[patch-spm] splash-screen/Package.swift already matches vendor -- OK.');
+  } else {
+    fs.writeFileSync(targetFile, vendored, 'utf8');
+    console.log('[patch-spm] Copied vendored Package.swift (5.7/iOS13) -> ' + targetFile);
+  }
+}
+
+// -- Step 2: regex fallback -- patch any other @capacitor Package.swift 5.9 -
 function findPackageSwift(dir, results) {
   results = results || [];
   if (!fs.existsSync(dir)) return results;
   var entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-  catch (_) { return results; }
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return results; }
   for (var i = 0; i < entries.length; i++) {
     var entry = entries[i];
     var full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      findPackageSwift(full, results);
-    } else if (entry.name === 'Package.swift') {
-      results.push(full);
-    }
+    if (entry.isDirectory()) { findPackageSwift(full, results); }
+    else if (entry.name === 'Package.swift') { results.push(full); }
   }
   return results;
 }
 
-var capacitorModulesDir = path.join(__dirname, '..', 'node_modules', '@capacitor');
-var allPackageSwift = findPackageSwift(capacitorModulesDir);
+var capacitorDir = path.join(frontendDir, 'node_modules', '@capacitor');
+var allSwift = findPackageSwift(capacitorDir);
+var patched = 0, alreadyOk = 0;
 
-if (allPackageSwift.length === 0) {
-  console.log('[patch-spm] No Package.swift files found under node_modules/@capacitor/ -- skipping.');
-  process.exit(0);
-}
-
-var patched = 0;
-var alreadyOk = 0;
-
-for (var j = 0; j < allPackageSwift.length; j++) {
-  var filePath = allPackageSwift[j];
-  var original = fs.readFileSync(filePath, 'utf8');
-  if (original.indexOf('swift-tools-version: 5.9') === -1) {
-    alreadyOk++;
-    continue;
-  }
-  var fixed = original.replace(/swift-tools-version:\s*5\.9/g, 'swift-tools-version: 5.7');
-  fs.writeFileSync(filePath, fixed, 'utf8');
-  console.log('[patch-spm] Patched 5.9 -> 5.7: ' + filePath);
+for (var j = 0; j < allSwift.length; j++) {
+  var f = allSwift[j];
+  var src = fs.readFileSync(f, 'utf8');
+  if (src.indexOf('swift-tools-version: 5.9') === -1) { alreadyOk++; continue; }
+  fs.writeFileSync(f, src.replace(/swift-tools-version:\s*5\.9/g, 'swift-tools-version: 5.7'), 'utf8');
+  console.log('[patch-spm] Regex-patched 5.9->5.7: ' + f);
   patched++;
 }
 
-console.log('[patch-spm] Done -- ' + patched + ' patched, ' + alreadyOk + ' already OK.');
+console.log('[patch-spm] Done -- ' + patched + ' regex-patched, ' + alreadyOk + ' already OK.');
