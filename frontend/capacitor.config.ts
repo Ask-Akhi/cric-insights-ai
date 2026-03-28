@@ -5,7 +5,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 const RAILWAY_URL = process.env.VITE_API_URL ?? 'https://your-app.up.railway.app'
 
 const config: CapacitorConfig = {
-  appId: 'com.cricketinsights.app',
+  appId: 'com.akhi2026.cricinsightsai',
   appName: 'Cricket Insights AI',
   webDir: 'dist',
   server: {
