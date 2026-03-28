@@ -21,21 +21,7 @@ const config: CapacitorConfig = {
     contentInset: 'always',
     // Required for older Xcode/iOS: allow mixed content from Railway HTTPS
     allowsLinkPreview: false,
-  },
-  plugins: {
-    SplashScreen: {
-      launchShowDuration: 2000,
-      backgroundColor: '#0f172a',
-      androidSplashResourceName: 'splash',
-      androidScaleType: 'CENTER_CROP',
-      showSpinner: false,
-      splashFullScreen: true,
-      splashImmersive: true,
-      // iOS splash
-      iosSpinnerStyle: 'small',
-      spinnerColor: '#ff6b35',
-    },
-  },
+  },  plugins: {},
 }
 
 export default config
