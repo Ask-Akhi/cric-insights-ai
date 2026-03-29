@@ -378,6 +378,9 @@ def _parse_cricbuzz_response(data: dict, format_filter: str | None, team_filter:
 def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
     """
     Fetch live + recent matches from Cricbuzz via RapidAPI.
+    ALWAYS fetches both /live AND /recent endpoints and merges them so the
+    ticker shows international recent results alongside any current live games.
+    Deduplicates by match_id. Live matches sorted first, then recent by date desc.
     Auto-tries multiple known hosts if the primary returns 403/not-subscribed.
     Set RAPIDAPI_HOST env var to pin a specific host.
     """
@@ -386,8 +389,9 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
     if cached is not None:
         return cached
 
-    matches: list[dict] = []
+    all_matches: dict[str, dict] = {}   # match_id → match (deduplicates)
     tried_hosts: list[str] = []
+    success_host: str | None = None
 
     # De-duplicate hosts while preserving order
     hosts_to_try = list(dict.fromkeys(_RAPIDAPI_HOSTS))
@@ -395,53 +399,70 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
     for host in hosts_to_try:
         tried_hosts.append(host)
         headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": host}
+        host_ok = False
 
+        # ALWAYS hit both endpoints — live games + recent results both matter for the ticker
         for endpoint in ("/matches/v1/live", "/matches/v1/recent"):
-            if len(matches) >= 12:
-                break
             try:
                 r = httpx.get(f"https://{host}{endpoint}", headers=headers, timeout=8)
 
                 if r.status_code == 403:
-                    body = r.text[:200]
                     log.warning(
                         f"Cricbuzz RapidAPI 403 on {host}{endpoint} — "
-                        f"body: {body}. "
-                        f"Check RAPIDAPI_KEY and subscription at rapidapi.com. "
-                        f"Set RAPIDAPI_HOST env var if subscribed to a different host."
+                        f"body: {r.text[:200]}. "
+                        f"Check RAPIDAPI_KEY at rapidapi.com. "
+                        f"Set RAPIDAPI_HOST env var if on a different host."
                     )
-                    break  # Try next host
+                    break  # This host is wrong — try next host
 
                 if r.status_code == 429:
-                    log.warning(f"Cricbuzz RapidAPI 429 rate-limit on {host} — backing off")
-                    break
+                    log.warning(f"Cricbuzz RapidAPI 429 rate-limit on {host}{endpoint} — skipping")
+                    continue
 
                 r.raise_for_status()
                 data = r.json()
-
-                # Log top-level keys so we can debug shape mismatches
                 top_keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
                 log.info(f"Cricbuzz {host}{endpoint} → {r.status_code}, top keys: {top_keys}")
 
                 batch = _parse_cricbuzz_response(data, format_filter)
                 log.info(f"  parsed {len(batch)} matches from {endpoint}")
-                matches.extend(batch)
+
+                # Merge by match_id — /live takes priority over /recent for same match
+                for m in batch:
+                    mid = m["match_id"]
+                    if mid not in all_matches or m["status"] == "live":
+                        all_matches[mid] = m
+
+                host_ok = True
 
             except Exception as e:
                 log.warning(f"Cricbuzz {host}{endpoint} failed: {type(e).__name__}: {e}")
 
-        if matches:
-            log.info(f"Cricbuzz: {len(matches)} matches via {host}")
-            break  # Got data — don't try next host
+        if host_ok:
+            success_host = host
+            log.info(f"Cricbuzz: {len(all_matches)} unique matches via {host}")
+            break  # Got data from this host — don't try next host
 
-    if not matches:
+    if not all_matches:
         log.warning(
             f"Cricbuzz: 0 matches after trying hosts {tried_hosts}. "
             f"RAPIDAPI_KEY set={bool(RAPIDAPI_KEY)}. Falling back to free provider."
         )
 
-    _store(cache_key, matches)
-    return matches
+    # Sort: live first, then recent by date descending
+    sorted_matches = sorted(
+        all_matches.values(),
+        key=lambda m: (0 if m["status"] == "live" else 1, m.get("date", ""), m.get("match_id", "")),
+        reverse=False,
+    )
+    # Within live/recent groups, sort recent by date descending (newest first)
+    live_m   = [m for m in sorted_matches if m["status"] == "live"]
+    recent_m = sorted([m for m in sorted_matches if m["status"] != "live"],
+                      key=lambda m: (m.get("date", ""), m.get("match_id", "")), reverse=True)
+    final = live_m + recent_m
+
+    _store(cache_key, final)
+    return final
 
 
 def _fmt_cricbuzz(match_format: str, series_name: str = "") -> str:
@@ -552,10 +573,11 @@ def get_live_source() -> str:
     return "free"              # CricketData.org no-key fallback
 
 
-def fetch_live_matches(format_filter: str | None = None, limit: int = 12) -> tuple[list[dict], str]:
+def fetch_live_matches(format_filter: str | None = None, limit: int = 20) -> tuple[list[dict], str]:
     """
     Fetch live/recent matches from whichever provider is configured.
     Returns (matches, source_name).
+    Default limit raised to 20 so the ticker shows a mix of live + recent international games.
     Always tries the free no-key fallback last so the ticker is never empty.
     """
     source = get_live_source()
