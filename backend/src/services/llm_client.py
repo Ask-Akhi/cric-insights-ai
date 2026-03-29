@@ -131,6 +131,9 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     if grounded:
         config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
 
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
     for model in models_to_try:
         for attempt in range(2):
             try:
@@ -139,19 +142,64 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                     contents=full_prompt,
                     config=types.GenerateContentConfig(**config_kwargs),
                 )
-                text = response.text or ""
-                # ── Truncation guard: if response ends mid-table (last non-blank
-                # line is a header row with no data rows after it), retry once
-                # with an explicit "complete the table" continuation prompt.
-                if _is_truncated_table(text) and attempt == 0:
-                    continuation = full_prompt + "\n\n[SYSTEM: Your previous response was cut off mid-table. Please complete the markdown table with ALL data rows and finish the response.]"
+
+                # ── Robust text extraction ─────────────────────────────────
+                # response.text raises / returns "" when finish_reason is
+                # RECITATION, SAFETY, MAX_TOKENS, etc. Extract from parts directly.
+                text = ""
+                try:
+                    text = response.text or ""
+                except Exception:
+                    pass
+
+                # If .text is empty, try extracting from candidates[0].content.parts
+                if not text:
+                    try:
+                        for candidate in (response.candidates or []):
+                            finish = getattr(candidate, "finish_reason", None)
+                            _logger.warning(
+                                f"Gemini {model} (grounded={grounded}): "
+                                f"response.text empty, finish_reason={finish}"
+                            )
+                            content = getattr(candidate, "content", None)
+                            if content:
+                                for part in (getattr(content, "parts", None) or []):
+                                    t = getattr(part, "text", None)
+                                    if t:
+                                        text += t
+                    except Exception as ex:
+                        _logger.warning(f"Gemini candidate extraction failed: {ex}")
+
+                # If still empty and grounded, fall back to non-grounded immediately
+                if not text and grounded:
+                    _logger.warning(
+                        f"Gemini grounded response empty for model={model} — "
+                        f"falling back to non-grounded call"
+                    )
+                    return _gemini_response(prompt, context, grounded=False)
+
+                # ── Truncation guard ───────────────────────────────────────
+                # If response ends mid-table, retry once with a continuation prompt.
+                if text and _is_truncated_table(text) and attempt == 0:
+                    continuation = (
+                        full_prompt
+                        + "\n\n[SYSTEM: Your previous response was cut off mid-table. "
+                        "Please complete the markdown table with ALL data rows and finish the response.]"
+                    )
                     r2 = client.models.generate_content(
                         model=model,
                         contents=continuation,
                         config=types.GenerateContentConfig(**config_kwargs),
                     )
-                    text = r2.text or text  # use retry; fall back to original if retry also fails
+                    retry_text = ""
+                    try:
+                        retry_text = r2.text or ""
+                    except Exception:
+                        pass
+                    text = retry_text or text
+
                 return text
+
             except Exception as e:
                 err = str(e)
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
