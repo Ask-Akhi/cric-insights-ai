@@ -79,84 +79,84 @@ function ModeBadge({ mode }: { mode: AskMode }) {
 // ── Splits raw markdown answer into [summary, rest] ─────────────────────────
 // Rules:
 //  1. Short answers (≤ 300 chars) → show everything, no expand.
-//  2. Find the first clean paragraph break AFTER at least 80 chars.
-//  3. NEVER cut inside or immediately before a markdown table, list, or
-//     heading block — if a safe cut point is followed by structured content
-//     or the summary ends with a table, extend to include the full block.
-//  4. If no safe cut found → no split (show all).
+//  2. Find the first clean paragraph break after ≥80 chars of content.
+//  3. NEVER cut if the next block is a table/list/heading.
+//  4. NEVER cut if a table is within 3 non-blank lines of the cut point —
+//     prevents orphaning a 1-line intro sentence ("Here are the top performers:")
+//     that belongs with the table immediately following it.
+//  5. If no safe cut found → no split (show all).
 function splitAnswer(raw: string): { summary: string; detail: string | null } {
   const text = raw.replace(/^⚡ \*\(cached\)\*\n\n/, '')
 
-  // Short enough — no expand needed
   if (text.length <= 300) return { summary: text, detail: null }
 
   const lines = text.split('\n')
 
-  /** True if a line is part of a table, list, or heading */
-  const isStructured = (line: string) => {
-    const t = line.trim()
-    return t.startsWith('|') || t.startsWith('-') || t.startsWith('*')
-      || t.startsWith('#') || /^\d+\./.test(t)
-  }
-
-  /** True if a line looks like a markdown table row (has at least 2 pipes) */
+  /** True if a line is a markdown table row (2+ pipe chars) */
   const isTableRow = (line: string) => (line.match(/\|/g) ?? []).length >= 2
 
-  /** From startIdx, find the line index AFTER the entire table/list/heading block ends */
-  const skipBlock = (startIdx: number): number => {
-    let i = startIdx
-    while (i < lines.length && (isStructured(lines[i]) || lines[i].trim() === '')) i++
-    return i
+  /** True if a line opens a list/heading block. Deliberately excludes **bold** text. */
+  const isStructured = (line: string) => {
+    const t = line.trim()
+    if (t.startsWith('|')) return true       // table row
+    if (t.startsWith('#')) return true       // heading
+    if (/^\d+\./.test(t)) return true        // numbered list
+    if (/^\* \S/.test(t)) return true        // unordered list  (* item — space required)
+    if (/^- \S/.test(t)) return true         // unordered list  (- item)
+    return false
+    // **bold** and ***bold*** intentionally NOT matched — they are inline text
+  }
+
+  /** True if a markdown table appears within `lookahead` non-blank lines of lineIdx */
+  const tableComingUp = (lineIdx: number, lookahead = 3): boolean => {
+    let seen = 0
+    for (let j = lineIdx; j < lines.length && seen < lookahead; j++) {
+      if (lines[j].trim() === '') continue
+      if (isTableRow(lines[j])) return true
+      seen++
+    }
+    return false
+  }
+  /** True if a line is a dangling intro — meaningless without what follows */
+  const isIntroSentence = (line: string) => {
+    const t = line.trim().toLowerCase()
+    return (
+      t.startsWith('here are') || t.startsWith('here is') ||
+      t.startsWith('below are') || t.startsWith('below is') ||
+      t.startsWith('the following') || t.startsWith('these are') ||
+      t.startsWith('based on') || t.startsWith('see below')
+    )
   }
 
   let cutLineIdx = -1
 
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() !== '') continue
+    if (lines[i].trim() !== '') continue  // only act on blank lines
 
-    // blank line = paragraph boundary — find next non-blank
     let next = i + 1
     while (next < lines.length && lines[next].trim() === '') next++
     if (next >= lines.length) break
 
     const charsSoFar = lines.slice(0, i).join('\n').length
-    if (charsSoFar < 80) continue     // summary too short, keep going
-    if (charsSoFar > 700) {           // summary getting very long — force cut here
-      // but only if we're not about to orphan a table
-      if (!isStructured(lines[next])) { cutLineIdx = i; break }
-    }
+    if (charsSoFar < 120) continue  // need a real paragraph, not just one intro line
 
     const prevLine = lines[i - 1] ?? ''
+    const nextLine = lines[next]
 
-    // Don't cut if the upcoming block is structured (table/list/heading)
-    if (isStructured(lines[next])) continue
-
-    // Don't cut if the last line of the summary is inside a table (orphan header)
-    if (isTableRow(prevLine)) {
-      // Extend cut past the whole table block
-      const afterBlock = skipBlock(next)
-      cutLineIdx = afterBlock
-      break
-    }
-
-    // Don't cut immediately after a heading (the content belongs with it)
-    if (prevLine.trim().startsWith('#')) continue
+    if (isStructured(nextLine)) continue           // next block is structured
+    if (tableComingUp(next, 6)) continue           // table within 6 non-blank lines
+    if (isTableRow(prevLine)) continue             // we're inside a table
+    if (prevLine.trim().startsWith('#')) continue  // right after a heading
+    if (isIntroSentence(prevLine)) continue        // dangling intro — skip
 
     cutLineIdx = i
     break
   }
 
   if (cutLineIdx === -1) return { summary: text, detail: null }
-  // Safety: if the cut point lands mid-table, extend past the whole table block.
-  // (Check if there's a table row continuing right at the cut boundary.)
-  if (cutLineIdx < lines.length && isTableRow(lines[cutLineIdx])) {
-    const afterBlock = skipBlock(cutLineIdx)
-    cutLineIdx = afterBlock
-  }
 
   const summary = lines.slice(0, cutLineIdx).join('\n').trim()
   const detail  = lines.slice(cutLineIdx).join('\n').trim()
-
   if (!detail) return { summary: text, detail: null }
   return { summary, detail }
 }
