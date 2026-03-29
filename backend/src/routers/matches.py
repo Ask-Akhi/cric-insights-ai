@@ -1,8 +1,13 @@
 from fastapi import APIRouter, Query
 from typing import Optional, List
+import os, httpx
 from pydantic import BaseModel
 from ..providers.cricsheet_provider import CricsheetProvider
-from ..providers.live_provider import fetch_live_matches, get_live_source
+from ..providers.live_provider import (
+    fetch_live_matches, get_live_source,
+    RAPIDAPI_KEY, RAPIDAPI_CRICBUZZ_HOST, _RAPIDAPI_HOSTS,
+    _parse_cricbuzz_response,
+)
 import polars as pl
 
 router = APIRouter()
@@ -336,3 +341,61 @@ def recent_matches(
 @router.post("/")
 def create_match(match: MatchInput):
     return {"received": match.model_dump()}
+
+
+@router.get("/debug-live")
+def debug_live():
+    """
+    Diagnostic endpoint — shows exactly what each live provider returns.
+    Hit https://cric-insights-ai.com/api/matches/debug-live to diagnose
+    wrong/empty ticker results without needing Railway log access.
+    """
+    source = get_live_source()
+    report: dict = {
+        "active_source": source,
+        "rapidapi_key_set": bool(RAPIDAPI_KEY),
+        "rapidapi_key_len": len(RAPIDAPI_KEY),
+        "rapidapi_host_env": os.getenv("RAPIDAPI_HOST", "(not set — using default)"),
+        "rapidapi_host_used": RAPIDAPI_CRICBUZZ_HOST,
+        "hosts_tried": [],
+        "raw_probe": {},
+        "parsed_matches": [],
+        "free_fallback": [],
+    }
+
+    # Probe each known host
+    if RAPIDAPI_KEY:
+        for host in list(dict.fromkeys(_RAPIDAPI_HOSTS)):
+            headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": host}
+            for ep in ("/matches/v1/live", "/matches/v1/recent"):
+                try:
+                    r = httpx.get(f"https://{host}{ep}", headers=headers, timeout=8)
+                    body_preview = r.text[:500]
+                    entry = {
+                        "host": host,
+                        "endpoint": ep,
+                        "status": r.status_code,
+                        "body_preview": body_preview,
+                    }
+                    if r.status_code == 200:
+                        data = r.json()
+                        entry["top_keys"] = list(data.keys()) if isinstance(data, dict) else []
+                        parsed = _parse_cricbuzz_response(data, None)
+                        entry["parsed_count"] = len(parsed)
+                        if parsed:
+                            entry["first_match"] = parsed[0]
+                            report["parsed_matches"] = parsed[:5]
+                    report["hosts_tried"].append(entry)
+                    if r.status_code == 200 and entry.get("parsed_count", 0) > 0:
+                        break  # Found working host+endpoint
+                except Exception as e:
+                    report["hosts_tried"].append({
+                        "host": host, "endpoint": ep,
+                        "error": f"{type(e).__name__}: {e}"
+                    })
+
+    # Also show free fallback result
+    from ..providers.live_provider import fetch_cricketdata_free
+    report["free_fallback"] = fetch_cricketdata_free(None, 3)
+
+    return report
