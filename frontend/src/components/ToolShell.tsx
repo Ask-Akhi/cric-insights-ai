@@ -76,6 +76,90 @@ function ModeBadge({ mode }: { mode: AskMode }) {
   )
 }
 
+// ── Splits raw markdown answer into [summary, rest] ─────────────────────────
+// Summary = up to 3 sentences (split on ". " / ".\n") OR first markdown block.
+// If the full answer is short (≤ 280 chars) there is nothing to expand.
+function splitAnswer(raw: string): { summary: string; detail: string | null } {
+  // Strip leading cache tag for splitting purposes
+  const text = raw.replace(/^⚡ \*\(cached\)\*\n\n/, '')
+
+  // If short enough, show everything — no expand needed
+  if (text.length <= 280) return { summary: text, detail: null }
+
+  // Try to split after the first "paragraph" (blank-line separated block)
+  const paraBreak = text.indexOf('\n\n')
+  if (paraBreak > 0 && paraBreak <= 400) {
+    return { summary: text.slice(0, paraBreak).trim(), detail: text.slice(paraBreak).trim() }
+  }
+
+  // Fallback: split after ~3 sentences
+  const sentenceRe = /(?<=[.!?])\s+(?=[A-Z🏏🎳🏆🔮])/g
+  let count = 0
+  let idx = -1
+  for (const m of text.matchAll(sentenceRe)) {
+    count++
+    if (count === 3) { idx = m.index!; break }
+  }
+  if (idx > 0) {
+    return { summary: text.slice(0, idx).trim(), detail: text.slice(idx).trim() }
+  }
+
+  // Last resort: hard split at 280 chars on a word boundary
+  const cutAt = text.lastIndexOf(' ', 280)
+  const cut = cutAt > 100 ? cutAt : 280
+  return { summary: text.slice(0, cut).trim() + '…', detail: text.slice(cut).trim() }
+}
+
+function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const cleanAnswer = isCached ? answer.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer
+  const { summary, detail } = splitAnswer(cleanAnswer)
+  const hasMore = !!detail
+
+  return (
+    <div>
+      <div className="prose-cricket">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+      </div>
+      {hasMore && (
+        <>
+          <AnimatePresence>
+            {expanded && (
+              <motion.div
+                key="detail"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="prose-cricket mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail!}</ReactMarkdown>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <button
+            type="button"
+            onClick={() => setExpanded(v => !v)}
+            className="mt-3 flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-200"
+            style={{ color: expanded ? '#94a3b8' : '#ff6b35' }}
+          >
+            <motion.span
+              animate={{ rotate: expanded ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+              className="inline-block"
+            >
+              ▼
+            </motion.span>
+            {expanded ? 'Show less' : 'Show more details'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {
   const [loading, setLoading]   = useState(false)
   const [answer, setAnswer]     = useState<string | null>(null)
@@ -221,12 +305,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     )}
                     {isCached && <span className="stat-badge stat-badge-gold">⚡ cached</span>}
                     <span className="ml-auto text-xs text-slate-600 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
-                  </div>                  <div className="prose-cricket">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {isCached ? answer.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer}
-                    </ReactMarkdown>
-                  </div><div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                    <button
+                  </div>                  <AnswerBlock answer={answer} isCached={!!isCached} /><div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>                    <button
                       className="btn-ghost"
                       onClick={() => {
                         const text = isCached ? answer!.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer!
@@ -236,7 +315,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                         })
                       }}
                     >
-                      {copied ? '✅ Copied!' : '📋 Copy'}
+                      {copied ? '✅ Copied!' : '📋 Copy full'}
                     </button>
                     <button className="btn-ghost" onClick={() => { setAnswer(null); setError(null) }}>↩ Clear</button>
                   </div>
