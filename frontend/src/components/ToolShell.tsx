@@ -77,37 +77,78 @@ function ModeBadge({ mode }: { mode: AskMode }) {
 }
 
 // ── Splits raw markdown answer into [summary, rest] ─────────────────────────
-// Summary = up to 3 sentences (split on ". " / ".\n") OR first markdown block.
-// If the full answer is short (≤ 280 chars) there is nothing to expand.
+// Rules:
+//  1. Short answers (≤ 300 chars) → show everything, no expand.
+//  2. Find the SECOND paragraph break (\n\n) so we always include at least
+//     the opening summary paragraph in full.
+//  3. NEVER cut inside a markdown table (lines starting with |), list, or
+//     heading block — extend the cut past the entire block.
+//  4. If no safe cut found → no split (show all).
 function splitAnswer(raw: string): { summary: string; detail: string | null } {
-  // Strip leading cache tag for splitting purposes
   const text = raw.replace(/^⚡ \*\(cached\)\*\n\n/, '')
 
-  // If short enough, show everything — no expand needed
-  if (text.length <= 280) return { summary: text, detail: null }
+  // Short enough — no expand needed
+  if (text.length <= 300) return { summary: text, detail: null }
 
-  // Try to split after the first "paragraph" (blank-line separated block)
-  const paraBreak = text.indexOf('\n\n')
-  if (paraBreak > 0 && paraBreak <= 400) {
-    return { summary: text.slice(0, paraBreak).trim(), detail: text.slice(paraBreak).trim() }
+  const lines = text.split('\n')
+
+  /** Returns true if a line is part of a table, list, or heading — must not split mid-block */
+  const isStructured = (line: string) => {
+    const t = line.trim()
+    return t.startsWith('|') || t.startsWith('-') || t.startsWith('*')
+      || t.startsWith('#') || /^\d+\./.test(t)
   }
 
-  // Fallback: split after ~3 sentences
-  const sentenceRe = /(?<=[.!?])\s+(?=[A-Z🏏🎳🏆🔮])/g
-  let count = 0
-  let idx = -1
-  for (const m of text.matchAll(sentenceRe)) {
-    count++
-    if (count === 3) { idx = m.index!; break }
-  }
-  if (idx > 0) {
-    return { summary: text.slice(0, idx).trim(), detail: text.slice(idx).trim() }
+  /** Given a line index, find the index AFTER the structured block ends */
+  const skipBlock = (startIdx: number): number => {
+    let i = startIdx
+    while (i < lines.length && (isStructured(lines[i]) || lines[i].trim() === '')) i++
+    return i
   }
 
-  // Last resort: hard split at 280 chars on a word boundary
-  const cutAt = text.lastIndexOf(' ', 280)
-  const cut = cutAt > 100 ? cutAt : 280
-  return { summary: text.slice(0, cut).trim() + '…', detail: text.slice(cut).trim() }
+  // Walk paragraph breaks (\n\n = empty line between content lines)
+  // and find a safe cut point after the FIRST real paragraph
+  let paraCount = 0
+  let cutLineIdx = -1
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === '') {
+      // blank line = paragraph boundary
+      // Check next non-blank line
+      let next = i + 1
+      while (next < lines.length && lines[next].trim() === '') next++
+
+      if (next >= lines.length) break
+
+      paraCount++
+
+      // Don't cut if the NEXT block is a table/list/heading (it belongs with what comes before)
+      // Also don't cut if the CURRENT block (before blank) ends inside a table
+      const prevLine = lines[i - 1] ?? ''
+      if (isStructured(prevLine) || isStructured(lines[next])) continue
+
+      // We have a clean paragraph boundary after at least 1 paragraph
+      if (paraCount >= 1) {
+        // Make sure the summary isn't too short (< 80 chars) or too long (> 600 chars)
+        const charsSoFar = lines.slice(0, i).join('\n').length
+        if (charsSoFar < 80) continue
+        if (charsSoFar > 600) { cutLineIdx = i; break }
+        cutLineIdx = i
+        break
+      }
+    }
+  }
+
+  if (cutLineIdx === -1) {
+    // No safe paragraph break found → show everything (don't truncate mid-table)
+    return { summary: text, detail: null }
+  }
+
+  const summary = lines.slice(0, cutLineIdx).join('\n').trim()
+  const detail  = lines.slice(cutLineIdx).join('\n').trim()
+
+  if (!detail) return { summary: text, detail: null }
+  return { summary, detail }
 }
 
 function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }) {
