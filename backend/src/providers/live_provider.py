@@ -25,12 +25,11 @@ log = logging.getLogger(__name__)
 CRICAPI_KEY    = os.getenv("CRICAPI_KEY", "")
 SPORTMONKS_KEY = os.getenv("SPORTMONKS_KEY", "")
 RAPIDAPI_KEY   = os.getenv("RAPIDAPI_KEY", "")
-# Free no-auth API from cricketdata.org — used when no paid key is set
-CRICDATA_API_URL = "https://api.cricketdata.org/api/v1"
 
 # Simple in-process cache so we don't burn free-tier quota on every ticker refresh
 _CACHE: dict[str, tuple[float, Any]] = {}
-_CACHE_TTL = 120  # seconds
+_CACHE_TTL = 300       # seconds — 5 min for paid (RapidAPI) provider
+_FREE_CACHE_TTL = 600  # seconds — 10 min for free no-key fallback
 
 
 def _cached(key: str, ttl: int = _CACHE_TTL):
@@ -42,8 +41,27 @@ def _cached(key: str, ttl: int = _CACHE_TTL):
     return None
 
 
-def _store(key: str, val: Any):
+def _store(key: str, val: Any, ttl: int = _CACHE_TTL):  # ttl kept for API symmetry
     _CACHE[key] = (time.time(), val)
+
+
+# ── RapidAPI circuit breaker ───────────────────────────────────────────────────
+# Trips on 429 (rate-limit) and disables RapidAPI calls for a cooldown window.
+# This prevents burning the remaining daily quota after hitting the limit.
+_RAPIDAPI_COOLDOWN_SECONDS = 10 * 60  # 10 minutes
+_RAPIDAPI_DISABLED_UNTIL: float = 0.0
+
+
+def _rapidapi_enabled() -> bool:
+    """Return True if RapidAPI key is set AND cooldown has expired."""
+    return bool(RAPIDAPI_KEY) and time.time() >= _RAPIDAPI_DISABLED_UNTIL
+
+
+def _disable_rapidapi(reason: str) -> None:
+    """Trip the circuit breaker — suppress RapidAPI calls for the cooldown period."""
+    global _RAPIDAPI_DISABLED_UNTIL
+    _RAPIDAPI_DISABLED_UNTIL = time.time() + _RAPIDAPI_COOLDOWN_SECONDS
+    log.warning(f"RapidAPI disabled for {_RAPIDAPI_COOLDOWN_SECONDS}s: {reason}")
 
 
 # ── Shared match shape ─────────────────────────────────────────────────────────
@@ -381,13 +399,18 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
     ALWAYS fetches both /live AND /recent endpoints and merges them so the
     ticker shows international recent results alongside any current live games.
     Deduplicates by match_id. Live matches sorted first, then recent by date desc.
-    Auto-tries multiple known hosts if the primary returns 403/not-subscribed.
-    Set RAPIDAPI_HOST env var to pin a specific host.
+    Auto-tries multiple known hosts if the primary returns 403/not-subscribed.    Set RAPIDAPI_HOST env var to pin a specific host.
     """
     cache_key = f"cricbuzz_live_{format_filter}"
-    cached = _cached(cache_key)
+    cached = _cached(cache_key, ttl=_CACHE_TTL)
     if cached is not None:
         return cached
+
+    if not _rapidapi_enabled():
+        remaining = max(0, _RAPIDAPI_DISABLED_UNTIL - time.time())
+        if remaining:
+            log.info(f"RapidAPI circuit breaker open — skipping Cricbuzz ({remaining:.0f}s remaining)")
+        return []
 
     all_matches: dict[str, dict] = {}   # match_id → match (deduplicates)
     tried_hosts: list[str] = []
@@ -416,8 +439,8 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
                     break  # This host is wrong — try next host
 
                 if r.status_code == 429:
-                    log.warning(f"Cricbuzz RapidAPI 429 rate-limit on {host}{endpoint} — skipping")
-                    continue
+                    _disable_rapidapi(f"429 rate-limit on {host}{endpoint}")
+                    break  # Stop trying more endpoints/hosts — quota is gone
 
                 r.raise_for_status()
                 data = r.json()
@@ -483,81 +506,88 @@ def _fmt_cricbuzz(match_format: str, series_name: str = "") -> str:
     return "T20"
 
 
-# ── CricketData.org — FREE, no API key required ────────────────────────────────
-# Docs: https://cricketdata.org/  |  100 req/day on free tier, no auth needed
-# Endpoint: GET https://api.cricketdata.org/api/v1/currentMatches?apikey=nokey
+# ── Cricsheet static fallback — always available, no network needed ────────────
+# Reads from the already-loaded parquet files so the ticker is never empty.
+# Returns the most recent matches sorted by start_date descending.
 
 def fetch_cricketdata_free(format_filter: str | None = None, limit: int = 12) -> list[dict]:
     """
-    Fetch current + recent matches from cricketdata.org with NO API key.
-    Used as automatic fallback when no paid key is configured.
+    Fallback: serve recent matches straight from the local Cricsheet parquet data.
+    No network call, no quota. Always available after the first load.
+    Used when no paid API key is configured or all live APIs are unavailable.
     """
-    cache_key = f"cricdata_free_{format_filter}_{limit}"
-    cached = _cached(cache_key, ttl=180)  # 3 min cache — save quota
+    cache_key = f"cricsheet_fallback_{format_filter}_{limit}"
+    cached = _cached(cache_key, ttl=_FREE_CACHE_TTL)  # 10 min cache
     if cached is not None:
         return cached
 
-    results: list[dict] = []
-    # Try current matches first, then recently completed
-    for endpoint in ["currentMatches", "matches"]:
-        if len(results) >= limit:
-            break
-        try:
-            r = httpx.get(
-                f"{CRICDATA_API_URL}/{endpoint}",
-                params={"apikey": "nokey", "offset": 0},
-                timeout=8,
+    try:
+        # Lazy import to avoid circular dependency at module load time
+        from ..providers.cricsheet_provider import CricsheetProvider
+        import polars as pl
+
+        provider = CricsheetProvider()
+        provider.load()
+
+        FORMAT_MAP: dict[str, list[str]] = {
+            "T20":  ["T20", "IT20", "IPL", "BBL", "CPL", "PSL", "BPL", "LPL",
+                     "SA20", "WPL", "MLC", "T20I"],
+            "ODI":  ["ODI", "ODC", "ODM"],
+            "Test": ["Test", "WTC"],
+        }
+        fmt_codes = FORMAT_MAP.get(format_filter or "", [format_filter] if format_filter else None)  # type: ignore
+        raw = provider.get_matches(formats=fmt_codes)
+        if not raw:
+            return []
+
+        df = pl.DataFrame(raw)
+        df = (
+            df.filter(pl.col("start_date").is_not_null())
+            .sort("start_date", descending=True)
+            .head(limit)
+        )
+
+        # Resolve team names from ball-by-ball data
+        lf_balls = provider.datasets.get("balls")
+        match_teams: dict = {}
+        if lf_balls is not None and not df.is_empty():
+            ids = df.get_column("match_id").to_list()
+            teams_df = (
+                lf_balls
+                .filter(pl.col("match_id").is_in(ids))
+                .select(["match_id", "batting_team", "innings"])
+                .unique()
+                .collect()
             )
-            if r.status_code in (401, 403):
-                # No-key access not allowed — skip silently
-                break
-            r.raise_for_status()
-            data = r.json()
+            for mid in ids:
+                rows = teams_df.filter(pl.col("match_id") == mid).sort("innings")
+                match_teams[mid] = rows.get_column("batting_team").unique().to_list()
 
-            for m in data.get("data", []):
-                match_type = m.get("matchType", "t20")
-                fmt = _fmt_cricapi(match_type)
-                if format_filter and fmt != format_filter:
-                    continue
+        results: list[dict] = []
+        for row in df.iter_rows(named=True):
+            mid = row.get("match_id", "")
+            teams = match_teams.get(mid, [])
+            fmt = row.get("format") or format_filter or ""
+            results.append(_match(
+                match_id=str(mid),
+                team1=teams[0] if len(teams) > 0 else (row.get("toss_winner") or ""),
+                team2=teams[1] if len(teams) > 1 else "",
+                score="",
+                winner=row.get("winner") or "",
+                status="recent",
+                venue=row.get("venue") or "",
+                date=str(row.get("start_date") or ""),
+                format=fmt,
+                competition=row.get("competition") or "",
+            ))
 
-                scores = m.get("score", [])
-                score_str = "  ".join(
-                    f"{s.get('inning','').split(' Inning')[0]}: "
-                    f"{s.get('r',0)}/{s.get('w',0)} ({s.get('o',0)} ov)"
-                    for s in scores
-                ) if scores else ""
+        _store(cache_key, results)
+        log.info(f"Cricsheet fallback: serving {len(results)} recent matches")
+        return results
 
-                started = m.get("matchStarted", False)
-                ended = m.get("matchEnded", False)
-                if started and not ended:
-                    status = "live"
-                elif not started:
-                    status = "upcoming"
-                else:
-                    status = "recent"
-
-                results.append(_match(
-                    match_id=m.get("id", ""),
-                    team1=(m.get("teams") or [""])[0],
-                    team2=(m.get("teams") or ["", ""])[1] if len(m.get("teams") or []) > 1 else "",
-                    score=score_str,
-                    winner=m.get("matchWinner", ""),
-                    status=status,
-                    venue=m.get("venue", ""),
-                    date=m.get("date", ""),
-                    format=fmt,
-                    competition=m.get("name", ""),
-                ))
-                if len(results) >= limit:
-                    break
-
-        except Exception as e:
-            log.debug(f"CricketData.org ({endpoint}) fetch failed: {e}")
-
-    _store(cache_key, results)
-    if results:
-        log.info(f"CricketData.org: fetched {len(results)} matches (no key)")
-    return results
+    except Exception as e:
+        log.warning(f"Cricsheet fallback failed: {e}")
+        return []
 
 
 # ── Public interface — auto-selects provider ───────────────────────────────────
@@ -577,12 +607,11 @@ def fetch_live_matches(format_filter: str | None = None, limit: int = 20) -> tup
     """
     Fetch live/recent matches from whichever provider is configured.
     Returns (matches, source_name).
-    Default limit raised to 20 so the ticker shows a mix of live + recent international games.
-    Always tries the free no-key fallback last so the ticker is never empty.
+    Default limit raised to 20 so the ticker shows a mix of live + recent international games.    Always tries the free no-key fallback last so the ticker is never empty.
     """
     source = get_live_source()
 
-    if source == "rapidapi":
+    if _rapidapi_enabled():
         matches = fetch_cricbuzz_live(format_filter)[:limit]
         if matches:
             return matches, "Cricbuzz"
@@ -597,11 +626,9 @@ def fetch_live_matches(format_filter: str | None = None, limit: int = 20) -> tup
         if not matches:
             matches = fetch_cricapi_recent(format_filter, limit)
         if matches:
-            return matches[:limit], "CricAPI"
-
-    # Free fallback — always tried when no paid key is set or paid key returns nothing
+            return matches[:limit], "CricAPI"    # Cricsheet static fallback — always works, no network needed
     matches = fetch_cricketdata_free(format_filter, limit)
     if matches:
         return matches, "CricketData"
 
-    return [], "cricsheet"  # caller falls back to Cricsheet static data
+    return [], "cricsheet"  # truly empty — data not loaded yet
