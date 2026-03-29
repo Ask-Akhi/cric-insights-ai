@@ -13,6 +13,7 @@ export interface AskResult {
   intent: AskIntent
   players: string[]
   mode: AskMode
+  data_sources: string[]   // e.g. ["Cricsheet RAG", "Google Search"]
 }
 
 export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {
@@ -27,10 +28,11 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
   }
   const json = await res.json()
   return {
-    answer:  json.answer  ?? '',
-    intent:  json.intent  ?? 'general',
-    players: json.players ?? [],
-    mode:    json.mode    ?? 'graph',
+    answer:       json.answer       ?? '',
+    intent:       json.intent       ?? 'general',
+    players:      json.players      ?? [],
+    mode:         json.mode         ?? 'graph',
+    data_sources: json.data_sources ?? [],
   }
 }
 

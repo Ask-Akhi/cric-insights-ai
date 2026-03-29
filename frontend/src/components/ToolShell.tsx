@@ -8,8 +8,8 @@ interface Props {
   icon: string
   title: string
   subtitle?: string
-  onSubmit: () => Promise<{ answer: string; intent?: AskIntent; players?: string[]; mode?: AskMode } | string>
-  onQuestionAsked?: () => void   // called after each successful submission (for usage counter)
+  onSubmit: () => Promise<{ answer: string; intent?: AskIntent; players?: string[]; mode?: AskMode; data_sources?: string[] } | string>
+  onQuestionAsked?: () => void
   children: React.ReactNode
   sidePanel?: React.ReactNode
   sidePanelReady?: boolean
@@ -202,18 +202,19 @@ function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }
 }
 
 export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {
-  const [loading, setLoading]   = useState(false)
-  const [answer, setAnswer]     = useState<string | null>(null)
-  const [intent, setIntent]     = useState<AskIntent>('general')
-  const [players, setPlayers]   = useState<string[]>([])
-  const [mode, setMode]         = useState<AskMode>('graph')
-  const [error, setError]       = useState<string | null>(null)
-  const [elapsed, setElapsed]   = useState<number>(0)
-  const [copied, setCopied]     = useState(false)
+  const [loading, setLoading]         = useState(false)
+  const [answer, setAnswer]           = useState<string | null>(null)
+  const [intent, setIntent]           = useState<AskIntent>('general')
+  const [players, setPlayers]         = useState<string[]>([])
+  const [mode, setMode]               = useState<AskMode>('graph')
+  const [dataSources, setDataSources] = useState<string[]>([])
+  const [error, setError]             = useState<string | null>(null)
+  const [elapsed, setElapsed]         = useState<number>(0)
+  const [copied, setCopied]           = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setAnswer(null); setError(null); setElapsed(0); setLoading(true); setCopied(false)
+    setAnswer(null); setError(null); setElapsed(0); setLoading(true); setCopied(false); setDataSources([])
     const start = Date.now()
     timerRef.current = setInterval(() => setElapsed(Date.now() - start), 100)
     try {
@@ -225,8 +226,9 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
         setIntent(result.intent ?? 'general')
         setPlayers(result.players ?? [])
         setMode(result.mode ?? 'graph')
+        setDataSources(result.data_sources ?? [])
       }
-      onQuestionAsked?.()   // increment free tier counter
+      onQuestionAsked?.()
     } catch (err: unknown) {
       setError(String(err))
     } finally {
@@ -327,8 +329,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                   )}
                 </div>
               ) : answer ? (
-                <>
-                  {/* ── Result header with badges ── */}
+                <>                  {/* ── Result header with badges ── */}
                   <div className="flex items-center gap-2 mb-5 pb-4 flex-wrap" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                     <span className="text-[10px] font-bold tracking-widest uppercase text-orange-400">💡 AI Analysis</span>
                     {/* Intent badge */}
@@ -338,6 +339,22 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     </span>
                     {/* Mode badge */}
                     <ModeBadge mode={mode} />
+                    {/* Data source badges — shows exactly what data was used */}
+                    {dataSources.map(src => {
+                      const cfg: Record<string, { icon: string; color: string }> = {
+                        'Cricsheet RAG':       { icon: '📊', color: '#34d399' },
+                        'Google Search':       { icon: '🌐', color: '#60a5fa' },
+                        'Gemini training data':{ icon: '🧠', color: '#a78bfa' },
+                        'LangGraph':           { icon: '✦',  color: '#a78bfa' },
+                      }
+                      const c = cfg[src] ?? { icon: '📁', color: '#94a3b8' }
+                      return (
+                        <span key={src} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md"
+                          style={{ background: `${c.color}15`, color: c.color, border: `1px solid ${c.color}30` }}>
+                          {c.icon} {src}
+                        </span>
+                      )
+                    })}
                     {/* Detected players */}
                     {players.length > 0 && (
                       <span className="text-[9px] text-slate-500 font-medium">
@@ -346,7 +363,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     )}
                     {isCached && <span className="stat-badge stat-badge-gold">⚡ cached</span>}
                     <span className="ml-auto text-xs text-slate-600 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
-                  </div>                  <AnswerBlock answer={answer} isCached={!!isCached} /><div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>                    <button
+                  </div><AnswerBlock answer={answer} isCached={!!isCached} /><div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>                    <button
                       className="btn-ghost"
                       onClick={() => {
                         const text = isCached ? answer!.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer!
