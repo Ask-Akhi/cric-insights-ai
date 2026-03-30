@@ -91,10 +91,9 @@ export default function PlayerCompare({ apiBase, format, grounded, onQuestionAsk
     if (!nameA.trim() || !nameB.trim()) return
     setError(null); setStatsA(null); setStatsB(null); setAiAnswer(null)
     setLoading(true)
-
     const [resA, resB, aiRes] = await Promise.allSettled([
-      callPlayerStats(apiBase, nameA.trim()),
-      callPlayerStats(apiBase, nameB.trim()),
+      callPlayerStats(apiBase, nameA.trim(), format),
+      callPlayerStats(apiBase, nameB.trim(), format),
       callAsk(apiBase, {
         prompt: `Compare ${nameA} vs ${nameB} in ${format} cricket. Cover: batting averages, strike rates, centuries/fifties, bowling records if applicable, head-to-head era comparison, strengths and weaknesses, and who is the better fantasy pick right now. Be concise but analytical.`,
         context: { format, player_a: nameA, player_b: nameB },
@@ -183,8 +182,7 @@ export default function PlayerCompare({ apiBase, format, grounded, onQuestionAsk
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5">
 
             {/* Player nameplates */}
-            <div className="grid grid-cols-2 gap-4">
-              {[
+            <div className="grid grid-cols-2 gap-4">              {[
                 { stats: statsA, name: nameA, color: ORANGE },
                 { stats: statsB, name: nameB, color: INDIGO },
               ].map(({ stats, name, color }, idx) => (
@@ -192,7 +190,16 @@ export default function PlayerCompare({ apiBase, format, grounded, onQuestionAsk
                   <Avatar name={stats?.player ?? name} color={color} />
                   <div className="min-w-0">
                     <p className="font-bold text-white truncate text-sm">{stats?.player ?? name}</p>
-                    {stats?.found === false && <p className="text-[10px] text-red-400 mt-0.5">Player not found</p>}
+                    {stats?.found === false && (
+                      <p className="text-[10px] text-amber-400 mt-0.5">
+                        Not in Cricsheet — AI uses web data
+                      </p>
+                    )}
+                    {stats?.found && stats.player !== name && (
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        matched as {stats.player}
+                      </p>
+                    )}
                     <div className="flex gap-1 mt-1.5 flex-wrap">
                       {stats?.batter && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: `${color}22`, color }}>🏏 Bat</span>}
                       {stats?.bowler && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: `${color}22`, color }}>🎳 Bowl</span>}

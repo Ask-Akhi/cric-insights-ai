@@ -15,11 +15,11 @@ def _get_provider() -> CricsheetProvider:
 
 # ── Common full-name → Cricsheet initials aliases ────────────────────────────
 # Cricsheet uses "<Initials> <Surname>" format (e.g. "RG Sharma", "V Kohli")
-PLAYER_ALIASES: dict[str, str] = {
-    # India
+PLAYER_ALIASES: dict[str, str] = {    # India
     "rohit sharma":        "RG Sharma",
     "virat kohli":         "V Kohli",
     "ms dhoni":            "MS Dhoni",
+    "mahendra singh dhoni":"MS Dhoni",
     "jasprit bumrah":      "JJ Bumrah",
     "shubman gill":        "S Gill",
     "hardik pandya":       "HH Pandya",
@@ -33,12 +33,38 @@ PLAYER_ALIASES: dict[str, str] = {
     "rahul dravid":        "R Dravid",
     "zaheer khan":         "Z Khan",
     "mohammad shami":      "Mohammed Shami",
+    "mohammed shami":      "Mohammed Shami",
     "rishabh pant":        "RR Pant",
-    "shreyas iyer":        "SS Iyer",    "ishan kishan":        "Ishan Kishan",
+    "shreyas iyer":        "SS Iyer",
+    "ishan kishan":        "Ishan Kishan",
     "axar patel":          "AR Patel",
     "deepak chahar":       "DL Chahar",
     "kuldeep yadav":       "Kuldeep Yadav",
     "yuzvendra chahal":    "YS Chahal",
+    # India — missing aliases
+    "sanju samson":        "SV Samson",
+    "yashasvi jaiswal":    "YBK Jaiswal",
+    "ruturaj gaikwad":     "RD Gaikwad",
+    "tilak varma":         "Tilak Varma",
+    "arshdeep singh":      "Arshdeep Singh",
+    "ravi bishnoi":        "Ravi Bishnoi",
+    "washington sundar":   "Washington Sundar",
+    "deepak hooda":        "DJ Hooda",
+    "suresh raina":        "SK Raina",
+    "ambati rayudu":       "AT Rayudu",
+    "dinesh karthik":      "KD Karthik",
+    "shikhar dhawan":      "S Dhawan",
+    "cheteshwar pujara":   "CA Pujara",
+    "ajinkya rahane":      "AM Rahane",
+    "virender sehwag":     "V Sehwag",
+    "prithvi shaw":        "PP Shaw",
+    "rinku singh":         "Rinku Singh",
+    "venkatesh iyer":      "Venkatesh Iyer",
+    "umran malik":         "Umran Malik",
+    "shardul thakur":      "Shardul Thakur",
+    "bhuvneshwar kumar":   "B Kumar",
+    "rohit sharma iyer":   "RG Sharma",
+    "virat":               "V Kohli",
     # Australia
     "steve smith":         "SPD Smith",
     "david warner":        "DA Warner",
@@ -94,16 +120,63 @@ PLAYER_ALIASES: dict[str, str] = {
     "shakib al hasan":     "Shakib Al Hasan",
     "mushfiqur rahim":     "Mushfiqur Rahim",
     "tamim iqbal":         "Tamim Iqbal",
-    "mustafizur rahman":   "Mustafizur Rahman",
-    # Afghanistan
+    "mustafizur rahman":   "Mustafizur Rahman",    # Afghanistan
     "rashid khan":         "Rashid Khan",
     "mohammad nabi":       "Mohammad Nabi",
     "mujeeb ur rahman":    "Mujeeb Ur Rahman",
+    "ibrahim zadran":      "Ibrahim Zadran",
+    # IPL / franchise extras
+    "sunil narine":        "SP Narine",
+    "andre russell":       "AD Russell",
+    "sam curran":          "SM Curran",
+    "liam livingstone":    "LS Livingstone",
+    "eoin morgan":         "EJG Morgan",
+    "david miller":        "DA Miller",
+    "jos buttler":         "JC Buttler",
 }
 
 def _resolve_player_name(name: str) -> str:
-    """Map full name → Cricsheet name if known, otherwise return as-is."""
-    return PLAYER_ALIASES.get(name.strip().lower(), name.strip())
+    """
+    Map a user-typed name → Cricsheet name.
+    Priority: 1) exact alias match  2) surname-based search in live parquet data
+    """
+    cleaned = name.strip()
+    alias = PLAYER_ALIASES.get(cleaned.lower())
+    if alias:
+        return alias
+    return cleaned
+
+
+def _fuzzy_resolve(name: str, provider: "CricsheetProvider") -> str:  # type: ignore[name-defined]
+    """
+    Last-resort fuzzy lookup: search Cricsheet player list by surname.
+    Returns the best Cricsheet name match, or the original name if nothing found.
+    """
+    # Already resolved via alias — skip expensive search
+    alias = PLAYER_ALIASES.get(name.strip().lower())
+    if alias:
+        return alias
+
+    parts = name.strip().split()
+    # Try surname (last word) first, then first word
+    for query_part in [parts[-1], parts[0]] if len(parts) > 1 else [parts[0]]:
+        candidates = provider.list_players(q=query_part, limit=20)
+        if not candidates:
+            continue
+        name_lower = name.lower()
+        # Score: prefer candidate whose lowercase contains any word of the input name
+        scored = []
+        for c in candidates:
+            c_lower = c.lower()
+            # Count how many input words appear in the candidate name
+            score = sum(1 for w in parts if w.lower() in c_lower)
+            if score > 0:
+                scored.append((score, c))
+        if scored:
+            scored.sort(key=lambda x: -x[0])
+            return scored[0][1]
+
+    return name.strip()  # give up — return as typed
 
 
 @router.get("/detect")
@@ -138,12 +211,25 @@ def list_players(q: str | None = None, limit: int = 100):
 def get_player_stats(player_name: str, format: str | None = Query(None)):
     """Return structured chart-ready stats for a player, optionally filtered by format."""
     provider = _get_provider()
-    # Resolve common full names → Cricsheet initials (e.g. "Rohit Sharma" → "RG Sharma")
+    # 1. Try alias map first (fastest — no DB hit)
     resolved_name = _resolve_player_name(player_name)
+
     df = provider.get_player_events(resolved_name)
 
+    # 2. If alias didn't help, do a live fuzzy surname search in the parquet data
+    if df.is_empty() and resolved_name == player_name.strip():
+        fuzzy_name = _fuzzy_resolve(player_name, provider)
+        if fuzzy_name != resolved_name:
+            df = provider.get_player_events(fuzzy_name)
+            if not df.is_empty():
+                resolved_name = fuzzy_name
+                import logging
+                logging.getLogger(__name__).info(
+                    f"Player fuzzy match: '{player_name}' -> '{resolved_name}'"
+                )
+
     if df.is_empty():
-        return {"player": resolved_name, "found": False, "batter": None, "bowler": None}
+        return {"player": player_name, "found": False, "batter": None, "bowler": None}
 
     # Optionally narrow to a specific format.
     # T20 → matches T20 and T20I; ODI → ODI and ODI Women; Test → Test only.

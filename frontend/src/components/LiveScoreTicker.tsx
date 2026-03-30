@@ -32,13 +32,15 @@ interface Props {
   onLiveChange?: (isLive: boolean) => void
 }
 
-export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props) {  const [matches, setMatches] = useState<Match[]>([])
+export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props) {
+  const [matches, setMatches] = useState<Match[]>([])
   const [latestDate, setLatestDate] = useState<string>('')
   const [dataNote, setDataNote] = useState<string>('')
   const [isLive, setIsLive] = useState(false)
   const [source, setSource] = useState('cricsheet')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null
 
@@ -56,16 +58,40 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
           setSource(data?.source ?? 'cricsheet')
           onLiveChange?.(live)
           setLoading(false)
-          // Auto-refresh every 60s when live data is active
-          if (live && !intervalId) {
-            intervalId = setInterval(() => load(false), 60_000)
-          }
         })
         .catch(() => { setError(true); setLoading(false) })
     }
 
+    const startPolling = () => {
+      if (intervalId) return
+      intervalId = setInterval(() => {
+        if (!document.hidden) load(false)
+      }, 90_000)  // 90s — reduced from 60s to save RapidAPI quota
+    }
+
+    const stopPolling = () => {
+      if (intervalId) { clearInterval(intervalId); intervalId = null }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling()
+      } else {
+        // Tab became visible — refetch immediately then restart polling
+        load(false)
+        startPolling()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     load(true)
-    return () => { if (intervalId) clearInterval(intervalId) }
+    startPolling()
+
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [apiBase, format])
   // Format a short date string: "2024-03-12" → "Mar 2024". Hides raw timestamps.
   const shortDate = (d?: string) => {

@@ -79,12 +79,13 @@ function ModeBadge({ mode }: { mode: AskMode }) {
 // ── Splits raw markdown answer into [summary, rest] ─────────────────────────
 // Rules:
 //  1. Short answers (≤ 300 chars) → show everything, no expand.
-//  2. Find the first clean paragraph break after ≥80 chars of content.
-//  3. NEVER cut if the next block is a table/list/heading.
-//  4. NEVER cut if a table is within 3 non-blank lines of the cut point —
-//     prevents orphaning a 1-line intro sentence ("Here are the top performers:")
-//     that belongs with the table immediately following it.
-//  5. If no safe cut found → no split (show all).
+//  2. Find the first clean paragraph break after ≥120 chars of content.
+//  3. NEVER cut if the next block is a table/list/heading/bold-section-header.
+//  4. NEVER cut if a table is within 12 non-blank lines ahead — prevents
+//     orphaning intro sentences like "Here are the top performers:" that
+//     belong with the table that follows.
+//  5. NEVER cut if prevLine is a table row or table separator (| --- | --- |).
+//  6. If no safe cut found → no split (show all).
 function splitAnswer(raw: string): { summary: string; detail: string | null } {
   const text = raw.replace(/^⚡ \*\(cached\)\*\n\n/, '')
 
@@ -94,21 +95,21 @@ function splitAnswer(raw: string): { summary: string; detail: string | null } {
 
   /** True if a line is a markdown table row (2+ pipe chars) */
   const isTableRow = (line: string) => (line.match(/\|/g) ?? []).length >= 2
-
-  /** True if a line opens a list/heading block. Deliberately excludes **bold** text. */
+  /** True if a line opens a structured block (list/heading/table/bold-section-header). */
   const isStructured = (line: string) => {
     const t = line.trim()
-    if (t.startsWith('|')) return true       // table row
-    if (t.startsWith('#')) return true       // heading
-    if (/^\d+\./.test(t)) return true        // numbered list
-    if (/^\* \S/.test(t)) return true        // unordered list  (* item — space required)
-    if (/^- \S/.test(t)) return true         // unordered list  (- item)
+    if (t.startsWith('|')) return true             // table row
+    if (t.startsWith('#')) return true             // ATX heading
+    if (/^\d+\./.test(t)) return true              // numbered list
+    if (/^\* \S/.test(t)) return true              // unordered list  (* item)
+    if (/^- \S/.test(t)) return true               // unordered list  (- item)
+    // Bold-only line used as a section header: **Key Factors** or **Player Predictions**
+    if (/^\*\*[^*]+\*\*[:\s]*$/.test(t)) return true
     return false
-    // **bold** and ***bold*** intentionally NOT matched — they are inline text
   }
 
   /** True if a markdown table appears within `lookahead` non-blank lines of lineIdx */
-  const tableComingUp = (lineIdx: number, lookahead = 3): boolean => {
+  const tableComingUp = (lineIdx: number, lookahead = 12): boolean => {
     let seen = 0
     for (let j = lineIdx; j < lines.length && seen < lookahead; j++) {
       if (lines[j].trim() === '') continue
@@ -117,6 +118,10 @@ function splitAnswer(raw: string): { summary: string; detail: string | null } {
     }
     return false
   }
+
+  /** True if line is a markdown table separator (| --- | --- |) */
+  const isTableSeparator = (line: string) =>
+    /^\|[\s|:\-]+\|$/.test(line.trim())
   /** True if a line is a dangling intro — meaningless without what follows */
   const isIntroSentence = (line: string) => {
     const t = line.trim().toLowerCase()
@@ -143,11 +148,12 @@ function splitAnswer(raw: string): { summary: string; detail: string | null } {
     const prevLine = lines[i - 1] ?? ''
     const nextLine = lines[next]
 
-    if (isStructured(nextLine)) continue           // next block is structured
-    if (tableComingUp(next, 6)) continue           // table within 6 non-blank lines
-    if (isTableRow(prevLine)) continue             // we're inside a table
-    if (prevLine.trim().startsWith('#')) continue  // right after a heading
-    if (isIntroSentence(prevLine)) continue        // dangling intro — skip
+    if (isStructured(nextLine)) continue              // next block is structured
+    if (tableComingUp(next, 12)) continue            // table within 12 non-blank lines
+    if (isTableRow(prevLine)) continue              // we're inside a table row
+    if (isTableSeparator(prevLine)) continue        // we're after a table separator
+    if (prevLine.trim().startsWith('#')) continue   // right after a heading
+    if (isIntroSentence(prevLine)) continue         // dangling intro — skip
 
     cutLineIdx = i
     break
