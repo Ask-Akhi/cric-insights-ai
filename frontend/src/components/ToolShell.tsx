@@ -26,11 +26,11 @@ const INTENT_CONFIG: Record<AskIntent, { label: string; color: string; bg: strin
 
 // ── Thinking steps shown during graph execution ────────────────────────────
 const THINKING_STEPS = [
-  { ms: 0,    text: '🧠 Routing question...'         },
-  { ms: 800,  text: '🔍 Fetching player stats...' },
-  { ms: 2000, text: '⚙️  Running analysis node...'   },
-  { ms: 4500, text: '✍️  Generating answer...'       },
-  { ms: 8000, text: '🔄 Synthesizing response...'    },
+  { ms: 0,    text: '🏏 Understanding your question…'  },
+  { ms: 800,  text: '📊 Loading cricket data…'         },
+  { ms: 2000, text: '🔍 Analysing stats & form…'       },
+  { ms: 4500, text: '✍️  Crafting your answer…'        },
+  { ms: 8000, text: '🎯 Finalising insights…'          },
 ]
 
 function ThinkingSteps({ elapsed }: { elapsed: number }) {
@@ -92,9 +92,13 @@ function splitAnswer(raw: string): { summary: string; detail: string | null } {
   if (text.length <= 300) return { summary: text, detail: null }
 
   const lines = text.split('\n')
-
   /** True if a line is a markdown table row (2+ pipe chars) */
   const isTableRow = (line: string) => (line.match(/\|/g) ?? []).length >= 2
+
+  // If the answer contains ANY markdown table row, never split.
+  // Splitting tables always risks separating headers from data rows.
+  if (lines.some(isTableRow)) return { summary: text, detail: null }
+
   /** True if a line opens a structured block (list/heading/table/bold-section-header). */
   const isStructured = (line: string) => {
     const t = line.trim()
@@ -323,9 +327,8 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
             <div className="glass p-6">
               {loading ? (
                 <>
-                  <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    <span className="text-orange-400 text-xs font-semibold tracking-wide uppercase">
-                      Running LangGraph Pipeline
+                  <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>                    <span className="text-orange-400 text-xs font-semibold tracking-wide uppercase">
+                      Preparing your insights…
                     </span>
                     <span className="text-xs text-slate-600 ml-auto font-mono">{(elapsed / 1000).toFixed(1)}s</span>
                   </div>
