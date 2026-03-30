@@ -20,6 +20,41 @@ Your Mac has **Xcode 14.0.1** — this is an older version but it **will work** 
 
 ---
 
+## 🚨 FIX: "package 'capapp-spm' using Swift tools version 5.9 but installed is 5.7"
+
+This means Xcode's SPM cache is stale — it still holds the old `5.9` version of `Package.swift` even though the repo file has already been patched to `5.7`.
+
+**Run these commands on the Mac in one go** (quit Xcode first):
+
+```bash
+osascript -e 'quit app "Xcode"'
+
+# Pull the latest patched Package.swift from GitHub
+cd ~/cric-insights-ai
+git pull origin master
+
+# Clear ALL Xcode SPM caches
+rm -rf ~/Library/Caches/org.swift.swiftpm
+rm -rf ~/Library/org.swift.swiftpm
+rm -rf ~/cric-insights-ai/frontend/ios/App/.build
+rm -f  ~/cric-insights-ai/frontend/ios/App/CapApp-SPM/Package.resolved
+
+# Reopen the workspace (NOT the .xcodeproj!)
+open ~/cric-insights-ai/frontend/ios/App/App.xcworkspace
+```
+
+Wait **30–60 seconds** for Xcode to re-resolve SPM packages (progress spinner in toolbar), then click ▶.
+
+> **Alternative — one-command fix using the patch script:**
+> ```bash
+> osascript -e 'quit app "Xcode"'
+> cd ~/cric-insights-ai && git pull origin master
+> python3 patch_spm.py
+> open ~/cric-insights-ai/frontend/ios/App/App.xcworkspace
+> ```
+
+---
+
 ## ✅ Quick Checklist (copy to Notes app on Mac)
 
 ```
@@ -279,6 +314,7 @@ Then click **▶** in Xcode.
 | **"Missing package product 'CapApp-SPM'"** | You opened `.xcodeproj` — quit Xcode and open `.xcworkspace` instead: `open ~/cric-insights-ai/frontend/ios/App/App.xcworkspace` |
 | **"Reset Package Caches" is greyed out** | Same fix — you need `.xcworkspace` open, not `.xcodeproj` |
 | **SPM doesn't resolve after opening `.xcworkspace`** | Clear SPM cache: `rm -rf ~/Library/Caches/org.swift.swiftpm && rm -rf ~/cric-insights-ai/frontend/ios/App/.build` then reopen workspace |
+| **"package 'capapp-spm' is using Swift tools version 5.9.0 but installed version is 5.7.0"** | Xcode is using a stale cached copy. Run the full fix below ↓ |
 | `xcodebuild -version` shows wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 | `pod install` fails SSL error | `sudo gem update --system && sudo gem install cocoapods` |
 | `pod install` fails — `ffi` Ruby 2.6 error | `brew install rbenv ruby-build && rbenv install 3.2.2 && rbenv global 3.2.2` then reopen Terminal and run `gem install cocoapods` |
