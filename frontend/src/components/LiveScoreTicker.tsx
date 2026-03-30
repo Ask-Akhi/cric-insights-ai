@@ -104,10 +104,9 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
   }
 
   const isEmpty = !loading && !error && matches.length === 0
-
   return (
-    <div className="border-b border-white/[0.05]" style={{ background: 'rgba(255,255,255,0.015)' }}>
-      <div className="max-w-screen-xl mx-auto px-4 py-2 flex items-center gap-3 overflow-hidden">        {/* Label */}
+    <div className="border-b border-white/[0.05]" style={{ background: 'rgba(255,255,255,0.015)', touchAction: 'pan-y' }}>
+      <div className="max-w-screen-xl mx-auto px-4 py-2 flex items-center gap-3 overflow-hidden">{/* Label */}
         <div className="flex-shrink-0 flex items-center gap-1.5">
           {isLive ? (
             <span className="relative flex h-1.5 w-1.5">
@@ -126,10 +125,8 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
             </span>
           )}
         </div>
-        <div className="w-px h-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }} />
-
-        {/* Ticker content */}
-        <div className="flex-1 overflow-x-auto scrollbar-hide">
+        <div className="w-px h-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }} />        {/* Ticker content */}
+        <div className="flex-1 overflow-x-auto scrollbar-hide" style={{ touchAction: 'pan-x' }}>
           {loading && (
             <div className="flex gap-3 pb-0.5" style={{ minWidth: 'max-content' }}>
               {[...Array(5)].map((_, i) => (

@@ -4,8 +4,12 @@ from typing import Any, Dict, List, Optional
 from ..services.llm_client import get_llm_response, get_llm_response_grounded
 from ..services.rag_service import build_rag_context, detect_players_in_prompt
 import logging
+import asyncio
 
 log = logging.getLogger(__name__)
+
+# Railway hard-kills connections at 60s — give ourselves 55s before that
+_ASK_TIMEOUT = 55
 
 # cricket_graph is imported lazily inside the endpoint to avoid blocking startup
 router = APIRouter()
@@ -56,22 +60,29 @@ async def ask(req: AskRequest):
         data_sources.append("Cricsheet RAG")
         log.info(f"RAG: found local data for '{req.prompt[:60]}'")
     else:
-        log.info(f"RAG: no local Cricsheet data for '{req.prompt[:60]}'")
-
-    # ── GROUNDED path ────────────────────────────────────────────────────────
+        log.info(f"RAG: no local Cricsheet data for '{req.prompt[:60]}'")    # ── GROUNDED path ────────────────────────────────────────────────────────
     if req.grounded:
         answer = ""
 
         # Tier 1: RAG context + Google Search grounding
         # → Best answer: verified Cricsheet stats + live web data
+        # Wrapped in asyncio.wait_for so Railway's 60s hard-kill never fires first.
         try:
-            answer = get_llm_response_grounded(req.prompt, enriched)
+            answer = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None, get_llm_response_grounded, req.prompt, enriched
+                ),
+                timeout=_ASK_TIMEOUT,
+            )
             if answer and answer.strip() and not answer.startswith("❌"):
                 data_sources.append("Google Search")
                 log.info("Grounded Tier 1: OK")
             else:
                 log.warning(f"Grounded Tier 1 empty/error ({answer!r:.80}) — trying Tier 2")
                 answer = ""
+        except asyncio.TimeoutError:
+            log.warning("Grounded Tier 1 timed out — trying Tier 2")
+            answer = ""
         except ValueError as e:
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
@@ -83,7 +94,12 @@ async def ask(req: AskRequest):
         if not answer:
             log.info("Grounded Tier 2: RAG + non-grounded Gemini training data")
             try:
-                answer = get_llm_response(req.prompt, enriched)
+                answer = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        None, get_llm_response, req.prompt, enriched
+                    ),
+                    timeout=_ASK_TIMEOUT,
+                )
                 if answer and answer.strip() and not answer.startswith("❌"):
                     if has_rag:
                         note = "\n\n---\n> ℹ️ *Web search unavailable — using Cricsheet local data + Gemini training knowledge.*"
@@ -95,6 +111,12 @@ async def ask(req: AskRequest):
                 else:
                     log.warning(f"Grounded Tier 2 empty/error: {answer!r:.80}")
                     answer = ""
+            except asyncio.TimeoutError:
+                log.warning("Grounded Tier 2 timed out — returning 504")
+                raise HTTPException(
+                    status_code=504,
+                    detail="Request timed out — the AI took too long. Please try a shorter or simpler question.",
+                )
             except Exception as e:
                 log.warning(f"Grounded Tier 2 failed: {e}")
                 answer = ""
@@ -115,7 +137,16 @@ async def ask(req: AskRequest):
     # Pass the RAG-enriched context so graph nodes have local Cricsheet stats too.
     try:
         from ..services.cricket_graph import run_graph
-        result = await run_graph(req.prompt, enriched)
+        result = await asyncio.wait_for(
+            run_graph(req.prompt, enriched),
+            timeout=_ASK_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        log.warning(f"LangGraph timed out for prompt: '{req.prompt[:60]}'")
+        raise HTTPException(
+            status_code=504,
+            detail="Request timed out — the AI took too long. Please try a shorter or simpler question.",
+        )
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 

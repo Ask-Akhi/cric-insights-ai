@@ -17,11 +17,27 @@ export interface AskResult {
 }
 
 export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {
-  const res = await fetch(`${apiBase}/api/ask`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ use_graph: true, ...payload }),
-  })
+  // 55s timeout — Railway cuts connections at 60s; grounded web search can take ~30s
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 55_000)
+
+  let res: Response
+  try {
+    res = await fetch(`${apiBase}/api/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ use_graph: true, ...payload }),
+      signal: controller.signal,
+    })
+  } catch (err: unknown) {
+    clearTimeout(timeoutId)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Request timed out (>55s). The AI is busy — please try again.')
+    }
+    throw new Error('Failed to reach the server. Check your connection or try again.')
+  }
+  clearTimeout(timeoutId)
+
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`API ${res.status}: ${text}`)
