@@ -62,14 +62,14 @@ async def ask(req: AskRequest):
     else:
         log.info(f"RAG: no local Cricsheet data for '{req.prompt[:60]}'")    # ── GROUNDED path ────────────────────────────────────────────────────────
     if req.grounded:
-        answer = ""
-
-        # Tier 1: RAG context + Google Search grounding
+        answer = ""        # Tier 1: RAG context + Google Search grounding
         # → Best answer: verified Cricsheet stats + live web data
         # Wrapped in asyncio.wait_for so Railway's 60s hard-kill never fires first.
+        # Use get_running_loop() — get_event_loop() is deprecated in Python 3.10+
         try:
+            loop = asyncio.get_running_loop()
             answer = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
+                loop.run_in_executor(
                     None, get_llm_response_grounded, req.prompt, enriched
                 ),
                 timeout=_ASK_TIMEOUT,
@@ -90,12 +90,11 @@ async def ask(req: AskRequest):
             answer = ""
 
         # Tier 2: RAG context + Gemini training data (no web search)
-        # → Still accurate for historical players; RAG injects any local Cricsheet stats
-        if not answer:
+        # → Still accurate for historical players; RAG injects any local Cricsheet stats        if not answer:
             log.info("Grounded Tier 2: RAG + non-grounded Gemini training data")
             try:
                 answer = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
+                    loop.run_in_executor(
                         None, get_llm_response, req.prompt, enriched
                     ),
                     timeout=_ASK_TIMEOUT,
