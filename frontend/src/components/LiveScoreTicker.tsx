@@ -63,10 +63,9 @@ export default function LiveScoreTicker({ apiBase, format, onLiveChange }: Props
     }
 
     const startPolling = () => {
-      if (intervalId) return
-      intervalId = setInterval(() => {
+      if (intervalId) return      intervalId = setInterval(() => {
         if (!document.hidden) load(false)
-      }, 90_000)  // 90s — reduced from 60s to save RapidAPI quota
+      }, 5 * 60_000)  // 5 min — backend caches 15 min; 500 free credits/day ÷ 2 per poll = 250 polls max
     }
 
     const stopPolling = () => {

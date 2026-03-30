@@ -28,8 +28,12 @@ RAPIDAPI_KEY   = os.getenv("RAPIDAPI_KEY", "")
 
 # Simple in-process cache so we don't burn free-tier quota on every ticker refresh
 _CACHE: dict[str, tuple[float, Any]] = {}
-_CACHE_TTL = 300       # seconds — 5 min for paid (RapidAPI) provider
-_FREE_CACHE_TTL = 600  # seconds — 10 min for free no-key fallback
+
+# RapidAPI free tier: 500 req/day, each fetch_cricbuzz_live() costs 2 credits (/live + /recent).
+# At 15-min cache + 5-min frontend poll → ≤ 2×(24×60/15) = 192 credits/day — well within 500.
+# Override via RAPIDAPI_CACHE_TTL env var (seconds) in Railway Variables if needed.
+_CACHE_TTL     = int(os.getenv("RAPIDAPI_CACHE_TTL", "900"))   # 15 min default
+_FREE_CACHE_TTL = 600  # seconds — 10 min for Cricsheet static fallback
 
 
 def _cached(key: str, ttl: int = _CACHE_TTL):
@@ -47,8 +51,9 @@ def _store(key: str, val: Any, ttl: int = _CACHE_TTL):  # ttl kept for API symme
 
 # ── RapidAPI circuit breaker ───────────────────────────────────────────────────
 # Trips on 429 (rate-limit) and disables RapidAPI calls for a cooldown window.
-# This prevents burning the remaining daily quota after hitting the limit.
-_RAPIDAPI_COOLDOWN_SECONDS = 10 * 60  # 10 minutes
+# After a 429 the daily quota is almost certainly gone — wait until near-midnight
+# UTC before trying again (1-hour cooldown avoids hammering the same exhausted key).
+_RAPIDAPI_COOLDOWN_SECONDS = int(os.getenv("RAPIDAPI_COOLDOWN", "3600"))  # 1 hour default
 _RAPIDAPI_DISABLED_UNTIL: float = 0.0
 
 
