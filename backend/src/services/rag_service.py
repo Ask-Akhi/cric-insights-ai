@@ -279,11 +279,10 @@ def fetch_h2h_context(team_a: str, team_b: str, fmt: str = "T20") -> str:
 
 def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[str], fmt: str = "T20") -> str:
     """
-    Build structured fantasy prediction data for each player:
-    - Expected runs (career avg, recent avg last 10, venue avg)
-    - Expected wickets (career avg, recent avg last 10, venue avg)
-    - Form streak (last 5 scores)
-    - Fantasy points estimate
+    Build a MARKDOWN TABLE of player fantasy predictions:
+    | Player | Team | Role | Expected Runs | Expected Wickets | Est. Fantasy Pts | Pick Reason |
+    
+    Returns pre-formatted table so it always renders (not truncated).
     """
     if not player_names:
         return ""
@@ -298,18 +297,27 @@ def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[st
     except Exception:
         return ""
 
-    blocks: List[str] = []
+    rows: List[dict] = []
 
-    for player in player_names[:6]:  # cap at 6 for context size
+    for player in player_names[:12]:  # cap at 12 for table size
         try:
             df = provider.get_player_events(player)
             if df.is_empty():
                 continue
 
+            # Detect role (batter, bowler, both)
+            has_bat = not df.filter(pl.col("batter") == player).is_empty()
+            has_bowl = not df.filter(pl.col("bowler") == player).is_empty()
+            role = "Bat/Bowl" if (has_bat and has_bowl) else ("Bowler" if has_bowl else "Batter")
+            
+            exp_runs_str = "-"
+            exp_wk_str = "-"
+            exp_pts = 0
+            pick_reason = ""
+
             # ── Batting prediction ────────────────────────────────────────
-            bat = df.filter(pl.col("batter") == player)
-            if not bat.is_empty():
-                # career avg per innings
+            if has_bat:
+                bat = df.filter(pl.col("batter") == player)
                 per_innings = (
                     bat.group_by(["match_id", "innings"])
                     .agg(pl.col("runs_off_bat").sum().alias("runs"))
@@ -317,36 +325,19 @@ def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[st
                 )
                 career_avg = float(per_innings["runs"].mean()) if per_innings.height > 0 else 0.0
                 recent_avg = float(per_innings.tail(10)["runs"].mean()) if per_innings.height >= 3 else career_avg
-                form_last5 = per_innings.tail(5)["runs"].to_list()
-
-                # venue avg
-                venue_avg = None
-                if venue:
-                    v_bat = bat.filter(pl.col("venue").str.to_lowercase().str.contains(venue.lower()))
-                    if not v_bat.is_empty():
-                        v_per = (
-                            v_bat.group_by(["match_id", "innings"])
-                            .agg(pl.col("runs_off_bat").sum().alias("runs"))
-                        )
-                        venue_avg = float(v_per["runs"].mean()) if v_per.height > 0 else None
-
-                # simple fantasy points estimate: 1pt/run + 10pt/50 + 20pt/100
+                
                 exp_runs = round(recent_avg * 0.7 + career_avg * 0.3, 1)
                 bonus = 10 if exp_runs >= 50 else (20 if exp_runs >= 100 else 0)
                 exp_pts_bat = round(exp_runs + bonus, 1)
-
-                lines = [f"FANTASY PREDICTION - {player} (bat, {fmt}):"]
-                lines.append(f"  Career avg/innings: {round(career_avg,1)}  Recent avg (last 10): {round(recent_avg,1)}")
-                if venue_avg is not None:
-                    lines.append(f"  Avg at {venue}: {round(venue_avg,1)}")
-                lines.append(f"  Last 5 scores: {form_last5}")
-                lines.append(f"  Expected runs: ~{exp_runs}  Est. fantasy pts (bat): ~{exp_pts_bat}")
-                blocks.append("\n".join(lines))
+                exp_runs_str = str(exp_runs)
+                exp_pts += exp_pts_bat
+                
+                if recent_avg > career_avg * 1.1:
+                    pick_reason = "Good form"
 
             # ── Bowling prediction ────────────────────────────────────────
-            bowl = df.filter(pl.col("bowler") == player)
-            if not bowl.is_empty():
-                wk_rows = bowl.filter(pl.col("player_dismissed").is_not_null())
+            if has_bowl:
+                bowl = df.filter(pl.col("bowler") == player)
                 per_match_wk = (
                     bowl.group_by("match_id")
                     .agg(pl.col("player_dismissed").is_not_null().sum().alias("wk"))
@@ -354,34 +345,51 @@ def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[st
                 )
                 career_wk_avg = float(per_match_wk["wk"].mean()) if per_match_wk.height > 0 else 0.0
                 recent_wk_avg = float(per_match_wk.tail(10)["wk"].mean()) if per_match_wk.height >= 3 else career_wk_avg
-                form_last5_wk = per_match_wk.tail(5)["wk"].to_list()
-
-                # venue wickets
-                venue_wk_avg = None
-                if venue:
-                    v_bowl = bowl.filter(pl.col("venue").str.to_lowercase().str.contains(venue.lower()))
-                    if not v_bowl.is_empty():
-                        v_per_wk = (
-                            v_bowl.group_by("match_id")
-                            .agg(pl.col("player_dismissed").is_not_null().sum().alias("wk"))
-                        )
-                        venue_wk_avg = float(v_per_wk["wk"].mean()) if v_per_wk.height > 0 else None
-
+                
                 exp_wk = round(recent_wk_avg * 0.7 + career_wk_avg * 0.3, 2)
-                exp_pts_bowl = round(exp_wk * 25, 1)  # ~25pts per wicket
+                exp_pts_bowl = round(exp_wk * 25, 1)
+                exp_wk_str = str(exp_wk)
+                exp_pts += exp_pts_bowl
+                
+                if not pick_reason and recent_wk_avg > career_wk_avg * 1.1:
+                    pick_reason = "Bowling form"
 
-                lines2 = [f"FANTASY PREDICTION - {player} (bowl, {fmt}):"]
-                lines2.append(f"  Career wk/match: {round(career_wk_avg,2)}  Recent wk avg (last 10): {round(recent_wk_avg,2)}")
-                if venue_wk_avg is not None:
-                    lines2.append(f"  Wk avg at {venue}: {round(venue_wk_avg,2)}")
-                lines2.append(f"  Last 5 wk hauls: {form_last5_wk}")
-                lines2.append(f"  Expected wickets: ~{exp_wk}  Est. fantasy pts (bowl): ~{exp_pts_bowl}")
-                blocks.append("\n".join(lines2))
+            if not pick_reason:
+                pick_reason = "Consistent" if exp_pts > 0 else "Emerging"
+
+            rows.append({
+                "player": player,
+                "team": "TBD",  # Would need team-player mapping; skip for now
+                "role": role,
+                "exp_runs": exp_runs_str,
+                "exp_wk": exp_wk_str,
+                "exp_pts": round(exp_pts, 1),
+                "reason": pick_reason,
+            })
 
         except Exception:
             continue
 
-    return "\n\n".join(blocks)
+    # ── Build markdown table ──────────────────────────────────────────────────
+    if not rows:
+        return ""
+    
+    # Sort by expected fantasy pts descending
+    rows.sort(key=lambda r: r["exp_pts"], reverse=True)
+    
+    table_lines = [
+        "## Player Predictions Table",
+        "",
+        "| Player | Role | Expected Runs | Expected Wickets | Est. Fantasy Pts | Pick Reason |",
+        "|---|---|---|---|---|---|",
+    ]
+    
+    for row in rows:
+        table_lines.append(
+            f"| {row['player']} | {row['role']} | {row['exp_runs']} | {row['exp_wk']} | {row['exp_pts']} | {row['reason']} |"
+        )
+    
+    return "\n".join(table_lines)
 
 
 def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
