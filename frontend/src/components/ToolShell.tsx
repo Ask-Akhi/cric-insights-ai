@@ -62,10 +62,10 @@ function ThinkingSteps({ elapsed }: { elapsed: number }) {
 
 function ModeBadge({ mode }: { mode: AskMode }) {
   const cfg: Record<AskMode, { label: string; color: string }> = {
-    graph:    { label: 'LangGraph ✦', color: '#a78bfa' },
-    direct:   { label: 'Direct LLM',  color: '#60a5fa' },
-    fallback: { label: 'Fallback',    color: '#f87171' },
-    grounded: { label: '🌐 Grounded', color: '#34d399' },
+    graph:    { label: '✦ Deep Analysis', color: '#a78bfa' },
+    direct:   { label: '⚡ Quick Answer', color: '#60a5fa' },
+    fallback: { label: '🔄 Fallback',     color: '#f87171' },
+    grounded: { label: '🌐 Web-grounded', color: '#34d399' },
   }
   const c = cfg[mode] ?? cfg.direct
   return (
@@ -184,35 +184,30 @@ function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }
       </div>
       {hasMore && (
         <>
-          <AnimatePresence>
-            {expanded && (
-              <motion.div
-                key="detail"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                className="overflow-hidden"
-              >
-                <div className="prose-cricket mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail!}</ReactMarkdown>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* CSS max-height transition — no layout thrashing, GPU-composited */}
+          <div
+            style={{
+              maxHeight: expanded ? '9999px' : '0',
+              overflow: 'hidden',
+              transition: expanded ? 'max-height 0.4s ease-in' : 'max-height 0.25s ease-out',
+            }}
+          >
+            <div className="prose-cricket mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail!}</ReactMarkdown>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => setExpanded(v => !v)}
-            className="mt-3 flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-200"
+            className="mt-3 flex items-center gap-1.5 text-[11px] font-semibold transition-colors duration-200"
             style={{ color: expanded ? '#94a3b8' : '#ff6b35' }}
           >
-            <motion.span
-              animate={{ rotate: expanded ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
-              className="inline-block"
+            <span
+              className="inline-block transition-transform duration-200"
+              style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
             >
               ▼
-            </motion.span>
+            </span>
             {expanded ? 'Show less' : 'Show more details'}
           </button>
         </>
@@ -361,16 +356,23 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     {/* Data source badges — shows exactly what data was used */}
                     {dataSources.map(src => {
                       const cfg: Record<string, { icon: string; color: string }> = {
-                        'Cricsheet RAG':       { icon: '📊', color: '#34d399' },
-                        'Google Search':       { icon: '🌐', color: '#60a5fa' },
-                        'Gemini training data':{ icon: '🧠', color: '#a78bfa' },
-                        'LangGraph':           { icon: '✦',  color: '#a78bfa' },
+                        'Cricsheet RAG':        { icon: '📊', color: '#34d399' },
+                        'Google Search':        { icon: '🌐', color: '#60a5fa' },
+                        'Gemini training data': { icon: '🧠', color: '#a78bfa' },
+                        'LangGraph':            { icon: '✦',  color: '#a78bfa' },
+                      }
+                      // Friendly display labels for internal source names
+                      const friendlyLabel: Record<string, string> = {
+                        'Cricsheet RAG':        'Ball-by-ball data',
+                        'Google Search':        'Live web search',
+                        'Gemini training data': 'AI knowledge',                        'LangGraph':            'Deep analysis',
                       }
                       const c = cfg[src] ?? { icon: '📁', color: '#94a3b8' }
+                      const label = friendlyLabel[src] ?? src
                       return (
                         <span key={src} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md"
                           style={{ background: `${c.color}15`, color: c.color, border: `1px solid ${c.color}30` }}>
-                          {c.icon} {src}
+                          {c.icon} {label}
                         </span>
                       )
                     })}
