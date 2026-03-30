@@ -423,6 +423,7 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
         tried_hosts.append(host)
         headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": host}
         host_ok = False
+        quota_gone = False
 
         # ALWAYS hit both endpoints — live games + recent results both matter for the ticker
         for endpoint in ("/matches/v1/live", "/matches/v1/recent"):
@@ -436,11 +437,12 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
                         f"Check RAPIDAPI_KEY at rapidapi.com. "
                         f"Set RAPIDAPI_HOST env var if on a different host."
                     )
-                    break  # This host is wrong — try next host
+                    break  # This host is not subscribed — try next host
 
                 if r.status_code == 429:
                     _disable_rapidapi(f"429 rate-limit on {host}{endpoint}")
-                    break  # Stop trying more endpoints/hosts — quota is gone
+                    quota_gone = True
+                    break  # Quota exhausted for the whole key — stop all hosts
 
                 r.raise_for_status()
                 data = r.json()
@@ -453,8 +455,7 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
                 # Merge by match_id — /live takes priority over /recent for same match
                 for m in batch:
                     mid = m["match_id"]
-                    if mid not in all_matches or m["status"] == "live":
-                        all_matches[mid] = m
+                    if mid not in all_matches or m["status"] == "live":                        all_matches[mid] = m
 
                 host_ok = True
 
@@ -465,6 +466,9 @@ def fetch_cricbuzz_live(format_filter: str | None = None) -> list[dict]:
             success_host = host
             log.info(f"Cricbuzz: {len(all_matches)} unique matches via {host}")
             break  # Got data from this host — don't try next host
+
+        if quota_gone:
+            break  # Key-level quota exhausted — no point trying other hosts
 
     if not all_matches:
         log.warning(
