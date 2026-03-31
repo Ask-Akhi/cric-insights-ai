@@ -1,22 +1,99 @@
 # 📱 iOS Build Guide — Cricket Insights AI on Mac + iPhone
 
-> **Situation:** Xcode is installed on your MacBook. Your code lives on a Windows PC and GitHub.
-> The Mac is a **fresh device** — you'll clone the repo here and build from it.
-> Do every step **on the Mac** in Terminal order.
+> ## ⛔ STATUS UPDATE — Mac Cannot Be Used for iPhone Testing
+>
+> **macOS version confirmed: 12.7.6 (Monterey)**
+> **Xcode version: 14.0.1** — max supported iOS: 16.x
+> **iPhone iOS version: 26** — requires Xcode 16+ (needs macOS 14+)
+>
+> **This Mac hardware cannot run macOS 14, so Xcode cannot be updated. The iPhone 13 Pro Max on iOS 26 cannot be deployed to from this Mac. No workaround exists.**
+>
+> ### ✅ Use these instead:
+> - **PWA:** iPhone Safari → `https://cric-insights-ai.com` → Share → Add to Home Screen
+> - **Android APK:** Windows → install JDK 17 → `.\build-android.ps1`
+>
+> The rest of this guide is preserved for reference (e.g. if you get a newer Mac later).
 
 ---
 
-## ⚠️ OLD MAC / XCODE 14 SPECIFIC NOTES (Read First!)
+## ⚠️ OLD MAC / XCODE 14 SPECIFIC NOTES (Historical Reference)
 
-Your Mac has **Xcode 14.0.1** — this is an older version but it **will work** for USB testing on your iPhone. A few things to know:
+Your Mac has **Xcode 14.0.1**. macOS is **12.7.6 — cannot be updated further on this hardware**.
 
-| Issue | What to do |
+| Issue | Status |
 |---|---|
 | Homebrew `formula.jws.json` error | Already fixed with `brew update-reset` ✅ |
-| `ada-url` / `llvm` takes hours to compile | **Use nvm instead of Homebrew for Node** (see Step 2 below) |
-| Xcode 14.0.1 can't build for iOS 17+ simulators | Use your physical iPhone via USB — works fine |
-| CocoaPods fails — `ffi` / Ruby 2.6 too old | **Install Ruby 3.2 via rbenv first** (see Step 3 below) |
-| `npx cap sync ios` may warn about Capacitor 8 + Xcode 14 | It still works — ignore the warning |
+| `ada-url` / `llvm` takes hours to compile | Use nvm instead of Homebrew for Node |
+| Xcode 14.0.1 can't build for iOS 17+ | ❌ iPhone is on iOS 26 — hard blocker |
+| CocoaPods fails — `ffi` / Ruby 2.6 too old | Install Ruby 3.2 via rbenv |
+| `npx cap sync ios` may warn about Capacitor 8 + Xcode 14 | Moot — iOS 26 blocks before this |
+
+---
+
+## 🚨 FIX: "Could not locate device support files" — iOS 26 on Xcode 14
+
+**Root cause:** Your iPhone is running **iOS 26** but Xcode 14.0.1 only supports up to iOS 16.x. This is a 10-version gap that can't be bridged with a cable reset.
+
+> ### ⛔ CONFIRMED: Mac is on macOS 12.7.6 (Monterey) — Xcode update is NOT possible
+>
+> `sw_vers -productVersion` → **12.7.6**
+>
+> | Requirement | Your Mac | Status |
+> |---|---|---|
+> | Xcode 16 (supports iOS 26) | Needs macOS 14+ | ❌ |
+> | Xcode 15 (supports iOS 17) | Needs macOS 13.5+ | ❌ |
+> | Xcode 14 (max on this Mac) | Supports iOS ≤ 16.x | ❌ iOS 26 gap |
+> | Community device support files | Only up to iOS ~18 | ❌ iOS 26 too new |
+>
+> **The Mac cannot be used to build/test on iPhone 13 Pro Max (iOS 26). Full stop.**
+>
+> **Use one of the two working alternatives below. ↓**
+
+---
+
+### ✅ Option 1 — PWA on Safari (works RIGHT NOW, zero setup)
+1. On your iPhone, open **Safari** → go to `https://cric-insights-ai.com`
+2. Tap the **Share** button (box with arrow) → **Add to Home Screen**
+3. Tap **Add** → the Cricket Insights AI icon appears on your home screen
+4. Opens like a native app — full screen, no browser bar
+
+### ✅ Option 2 — Android APK (from Windows, no Mac needed)
+iOS 26 on Xcode 14 is a hard blocker. Android testing works today from Windows:
+- Install JDK 17 from https://adoptium.net → run `.\build-android.ps1` → share APK via WhatsApp → install on any Android phone.
+
+### ❌ Option 3 — Update Xcode on this Mac
+Not possible. macOS 12.7.6 is the final version for this Mac's hardware. Xcode 15+ requires macOS 13.5+. There is no workaround.
+
+---
+
+
+
+**1. Reset USB pairing daemon:**
+```bash
+osascript -e 'quit app "Xcode"'
+sudo killall -9 usbmuxd 2>/dev/null; true
+# macOS auto-restarts usbmuxd after ~3 seconds — no launchctl needed
+```
+Then unplug iPhone → wait 5 seconds → plug back in. Tap **Trust** on the iPhone if prompted.
+
+> ⚠️ Do NOT run `sudo launchctl stop com.apple.usbmuxd` — it fails with "not privileged" on macOS 12+. The `killall` above is enough.
+
+**2. Enable Developer Mode on iPhone (required for iOS 16+):**
+- iPhone → **Settings → Privacy & Security → Developer Mode** → toggle **ON**
+- Tap **Restart** → after reboot tap **Turn On**
+- Unplug and replug the USB cable
+
+**3. Verify Xcode sees the device:**
+- Xcode → **Window → Devices and Simulators** (`Shift+Cmd+2`)
+- Your iPhone should now appear in the left sidebar
+
+**4. Quick diagnostic (Mac Terminal):**
+```bash
+# Prints your iPhone UDID if the Mac can detect it at all
+system_profiler SPUSBDataType | grep -A5 "iPhone"
+```
+If this shows your iPhone but Xcode still doesn't → Developer Mode was off (Step 2).  
+If this shows nothing → try a **different USB cable** (charge-only cables have no data pins).
 
 ---
 

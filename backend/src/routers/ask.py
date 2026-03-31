@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from ..services.llm_client import get_llm_response, get_llm_response_grounded
 from ..services.rag_service import build_rag_context, detect_players_in_prompt
 import logging
 import asyncio
+import time
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +30,16 @@ class AskResponse(BaseModel):
     players: List[str] = []
     mode: str = "graph"
     data_sources: List[str] = []   # ["Cricsheet RAG", "Google Search", "Gemini training data"]
+    latency_ms: int = 0            # server-side latency for debugging
+    rag_cache_hit: bool = False    # True if RAG context was served from cache
+
+
+def _api_error(status: int, code: str, message: str, detail: str = "") -> JSONResponse:
+    """Structured error response: {error: {code, message, detail}}"""
+    return JSONResponse(
+        status_code=status,
+        content={"error": {"code": code, "message": message, "detail": detail}},
+    )
 
 
 _FALLBACK = (
@@ -47,20 +59,23 @@ def _has_rag_data(enriched: Dict[str, Any]) -> bool:
 @router.post("", response_model=AskResponse)
 @router.post("/", response_model=AskResponse)
 async def ask(req: AskRequest):
+    _t0 = time.monotonic()
     ctx = req.context or {}
 
     # ── ALWAYS run RAG first ─────────────────────────────────────────────────
-    # Injects Cricsheet ball-by-ball stats, player averages, H2H, venue records,
-    # and fantasy prediction data into the context for ALL LLM calls below.
     enriched = build_rag_context(req.prompt, ctx)
     players = detect_players_in_prompt(req.prompt)
     has_rag = _has_rag_data(enriched)
+    rag_cache_hit = bool(enriched.get("_rag_cache_hit"))
     data_sources: List[str] = []
     if has_rag:
         data_sources.append("Cricsheet RAG")
-        log.info(f"RAG: found local data for '{req.prompt[:60]}'")
+        log.info(
+            "RAG: found local data for '%s' (cache_hit=%s, blocks=%s)",
+            req.prompt[:60], rag_cache_hit, enriched.get("_reranked_blocks", "?")
+        )
     else:
-        log.info(f"RAG: no local Cricsheet data for '{req.prompt[:60]}'")    # ── GROUNDED path ────────────────────────────────────────────────────────
+        log.info("RAG: no local Cricsheet data for '%s'", req.prompt[:60])# ── GROUNDED path ────────────────────────────────────────────────────────
     if req.grounded:
         answer = ""        # Tier 1: RAG context + Google Search grounding
         # → Best answer: verified Cricsheet stats + live web data
@@ -118,9 +133,7 @@ async def ask(req: AskRequest):
                 )
             except Exception as e:
                 log.warning(f"Grounded Tier 2 failed: {e}")
-                answer = ""
-
-        # Tier 3: Never show a blank screen
+                answer = ""        # Tier 3: Never show a blank screen
         if not answer:
             answer = _FALLBACK
 
@@ -130,6 +143,8 @@ async def ask(req: AskRequest):
             players=players,
             mode="grounded",
             data_sources=data_sources,
+            latency_ms=int((time.monotonic() - _t0) * 1000),
+            rag_cache_hit=rag_cache_hit,
         )
 
     # ── LangGraph multi-step pipeline (non-grounded) ─────────────────────────
@@ -163,4 +178,6 @@ async def ask(req: AskRequest):
         players=result.get("players", []),
         mode=result.get("mode", "graph"),
         data_sources=data_sources,
+        latency_ms=int((time.monotonic() - _t0) * 1000),
+        rag_cache_hit=rag_cache_hit,
     )

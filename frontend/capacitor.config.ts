@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 // Set VITE_API_URL to your Railway URL before building for device
 // e.g.  $env:VITE_API_URL = "https://your-app.up.railway.app"
-const RAILWAY_URL = process.env.VITE_API_URL ?? 'https://your-app.up.railway.app'
+const RAILWAY_URL = process.env.VITE_API_URL ?? 'https://cric-insights-ai.com'
 
 const config: CapacitorConfig = {
   appId: 'com.akhi2026.cricinsightsai',

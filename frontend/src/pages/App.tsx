@@ -10,10 +10,9 @@ import MatchInsights from './MatchInsights'
 import Insights from './Insights'
 import PlayerCompare from './PlayerCompare'
 import FantasyXI from './FantasyXI'
+import MatchPredict from './MatchPredict'
 import LiveScoreTicker from '../components/LiveScoreTicker'
-// ProBanner / ProModal disabled until Stripe is configured
-// import ProBanner from '../components/ProBanner'
-// import ProModal from '../components/ProModal'
+import { ThemeToggle } from '../components/ThemeProvider'
 
 // Free tier: 15 AI questions per day tracked in localStorage
 const FREE_LIMIT = 15
@@ -40,6 +39,7 @@ const API_BASE =
 
 const TOOLS = [
   { id: 'ask',      icon: '💬', label: 'Ask AI',          desc: 'Cricket Q&A' },
+  { id: 'predict',  icon: '🔮', label: 'Predict',         desc: 'Match prediction' },
   { id: 'batter',   icon: '🏏', label: 'Batter Stats',    desc: 'Batting analysis' },
   { id: 'bowler',   icon: '🎳', label: 'Bowler Stats',    desc: 'Bowling analysis' },
   { id: 'compare',  icon: '⚖️', label: 'Compare Players', desc: 'Side-by-side stats' },
@@ -140,10 +140,11 @@ export default function App() {
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 ${
                 grounded ? 'border-green-500/30 text-green-400 bg-green-500/[0.08]' : 'border-white/10 text-slate-500 bg-white/[0.03]'
               }`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${grounded ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
+            >              <span className={`w-1.5 h-1.5 rounded-full ${grounded ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
               <span className="hidden sm:inline">{grounded ? 'Web Search' : 'AI Only'}</span>
             </button>
+            {/* Theme toggle */}
+            <ThemeToggle />
             {/* Mobile hamburger */}
             <button
               className="md:hidden w-9 h-9 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-white/10"
@@ -314,8 +315,8 @@ export default function App() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.98 }}
               transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            >
-              {active === 'ask'      && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+            >              {active === 'ask'      && <AskAI        apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
+              {active === 'predict'  && <MatchPredict  apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
               {active === 'batter'   && <BatterStats   apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
               {active === 'bowler'   && <BowlerStats   apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}
               {active === 'compare'  && <PlayerCompare apiBase={API_BASE} format={format} grounded={grounded} onQuestionAsked={increment} />}

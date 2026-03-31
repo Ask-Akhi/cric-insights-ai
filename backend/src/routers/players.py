@@ -196,6 +196,48 @@ def detect_players_in_text(text: str = Query(..., description="Free-text sentenc
     return {"players": found, "count": len(found)}
 
 
+@router.get("/search")
+def search_players(q: str = Query(..., min_length=2, description="Player name search query"), limit: int = Query(10, le=30)):
+    """
+    Autocomplete player name search.
+    Returns ranked list of Cricsheet player names matching the query.
+    Checks PLAYER_ALIASES first (instant), then falls back to live parquet scan.
+    Used by frontend autocomplete inputs.
+    """
+    provider = _get_provider()
+    q_lower = q.strip().lower()
+
+    # 1. Alias map scan — instant, no I/O
+    alias_hits: list[str] = []
+    for alias, cricsheet_name in PLAYER_ALIASES.items():
+        if q_lower in alias and cricsheet_name not in alias_hits:
+            alias_hits.append(cricsheet_name)
+        if len(alias_hits) >= limit:
+            break
+
+    # 2. Live parquet scan for names not in alias map
+    live_hits = provider.list_players(q=q, limit=limit)
+
+    # Merge: alias hits first (more commonly known names), then live hits
+    seen: set[str] = set(alias_hits)
+    merged = list(alias_hits)
+    for name in live_hits:
+        if name not in seen:
+            merged.append(name)
+            seen.add(name)
+
+    results = merged[:limit]
+    return {
+        "players": results,
+        "query": q,
+        "count": len(results),
+        "sources": {
+            "alias_hits": len(alias_hits),
+            "live_hits": len(live_hits),
+        },
+    }
+
+
 @router.get("/")
 def list_players(q: str | None = None, limit: int = 100):
     provider = _get_provider()

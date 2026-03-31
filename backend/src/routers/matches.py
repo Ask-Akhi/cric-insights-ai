@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 from typing import Optional, List
 import os, httpx
+from datetime import date, timedelta
 from pydantic import BaseModel
 from ..providers.cricsheet_provider import CricsheetProvider
 from ..providers.live_provider import (
@@ -392,10 +393,73 @@ def debug_live():
                     report["hosts_tried"].append({
                         "host": host, "endpoint": ep,
                         "error": f"{type(e).__name__}: {e}"
-                    })
-
-    # Also show free fallback result
+                    })    # Also show free fallback result
     from ..providers.live_provider import fetch_cricketdata_free
     report["free_fallback"] = fetch_cricketdata_free(None, 3)
 
     return report
+
+
+@router.get("/schedule")
+def match_schedule(
+    format: Optional[str] = Query(None, description="T20, ODI, or Test"),
+    days_ahead: int = Query(30, ge=1, le=180, description="How many days ahead to look"),
+    limit: int = Query(20, le=100),
+):
+    """
+    Upcoming match schedule derived from Cricsheet metadata.
+    Returns fixtures with dates >= today, sorted by date ascending.
+    NOTE: Cricsheet data is historical — true upcoming fixtures come from live APIs.
+    This endpoint surfaces any near-future dates present in the dataset and
+    signals when live data would be needed.
+    """
+    provider = _get_provider()
+    matches = provider.get_matches(formats=[format] if format else None)
+
+    if not matches:
+        return {
+            "schedule": [],
+            "count": 0,
+            "note": "No Cricsheet data loaded yet. Deploy may still be indexing.",
+        }
+
+    today = date.today()
+    cutoff = today + timedelta(days=days_ahead)
+
+    upcoming = []
+    for m in matches:
+        try:
+            d = date.fromisoformat(str(m.get("start_date", ""))[:10])
+        except (ValueError, TypeError):
+            continue
+        if today <= d <= cutoff:
+            upcoming.append({
+                "match_id": m.get("match_id", ""),
+                "date": str(d),
+                "venue": m.get("venue", ""),
+                "city": m.get("city", ""),
+                "format": m.get("format", format or ""),
+                "competition": m.get("competition", ""),
+                "team1": m.get("team1", ""),
+                "team2": m.get("team2", ""),
+                "toss_winner": m.get("toss_winner", ""),
+            })
+
+    upcoming.sort(key=lambda x: x["date"])
+    upcoming = upcoming[:limit]
+
+    note = (
+        f"{len(upcoming)} upcoming fixtures found in Cricsheet data (next {days_ahead} days). "
+        "For real-time schedules set RAPIDAPI_KEY in Railway Variables."
+        if upcoming else
+        f"No fixtures found in Cricsheet data for the next {days_ahead} days. "
+        "Cricsheet is historical — set RAPIDAPI_KEY in Railway Variables for live schedules."
+    )
+
+    return {
+        "schedule": upcoming,
+        "count": len(upcoming),
+        "as_of": str(today),
+        "note": note,
+    }
+

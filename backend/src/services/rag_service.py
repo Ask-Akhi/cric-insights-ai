@@ -5,10 +5,45 @@ Enriches the LLM context with Cricsheet ball-by-ball stats:
   - Venue ground records (avg scores, top performers)
   - Head-to-head team history
   - Per-player fantasy prediction data (expected runs/wickets, form, venue avg)
+
+Cross-encoder reranking: context blocks are scored against the query and only
+the top-k most relevant blocks are injected into the LLM prompt. This:
+  - Reduces prompt length → faster LLM response
+  - Improves answer quality (less noise in context)
+  - Avoids hitting token budget limits on large squad queries
 """
 from __future__ import annotations
 import re
+import time
+import hashlib
 from typing import Any, Dict, List, Optional
+
+# Cross-encoder reranker (pure Python, zero extra dependencies)
+from .reranker import rerank_context_blocks, split_cricsheet_into_blocks
+
+# ── RAG-level cache: cache the fully-built rag context so repeated identical
+#    queries (same prompt + same format) skip all Cricsheet I/O entirely.
+#    Key = MD5 of (prompt + format). TTL = 10 minutes.
+_RAG_CACHE: Dict[str, Dict] = {}
+_RAG_CACHE_TTL = 600  # 10 minutes
+
+
+def _rag_cache_key(prompt: str, fmt: str) -> str:
+    return hashlib.md5(f"{prompt.strip().lower()}|{fmt}".encode()).hexdigest()
+
+
+def _get_rag_cached(key: str) -> Dict | None:
+    entry = _RAG_CACHE.get(key)
+    if entry and (time.time() - entry["ts"]) < _RAG_CACHE_TTL:
+        return entry["data"]
+    return None
+
+
+def _set_rag_cached(key: str, data: Dict) -> None:
+    if len(_RAG_CACHE) >= 200:
+        oldest = min(_RAG_CACHE, key=lambda k: _RAG_CACHE[k]["ts"])
+        del _RAG_CACHE[oldest]
+    _RAG_CACHE[key] = {"data": data, "ts": time.time()}
 
 from ..routers.players import PLAYER_ALIASES
 
@@ -393,8 +428,19 @@ def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[st
 
 
 def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
-    enriched = dict(context)
     fmt = str(context.get("format", "T20"))
+
+    # ── RAG-level cache: skip all Cricsheet I/O for identical recent queries ──
+    cache_key = _rag_cache_key(prompt, fmt)
+    cached = _get_rag_cached(cache_key)
+    if cached is not None:
+        # Merge cached RAG result with caller-provided context (format, grounded etc.)
+        merged = dict(context)
+        merged.update(cached)
+        merged["_rag_cache_hit"] = True
+        return merged
+
+    enriched = dict(context)
     enriched["_is_cricket"] = is_cricket_question(prompt)
 
     # ── Detect entities ───────────────────────────────────────────────────────
@@ -408,7 +454,8 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
     if players:
         stats_text = fetch_player_context(players, fmt=fmt)
         if stats_text:
-            cricsheet_blocks.append(stats_text)
+            # Split multi-player block into individual blocks for reranking
+            cricsheet_blocks.extend(split_cricsheet_into_blocks(stats_text))
         enriched["detected_players"] = ", ".join(players)
 
     # ── Fantasy prediction data ───────────────────────────────────────────────
@@ -427,9 +474,6 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if venue_text:
             cricsheet_blocks.append(venue_text)
         enriched["venue"] = venue
-    elif teams and len(teams) >= 1:
-        # No explicit venue — try to fetch H2H which implies some ground context
-        pass
 
     # ── Head-to-head context ──────────────────────────────────────────────────
     if len(teams) >= 2:
@@ -440,7 +484,20 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
     elif len(teams) == 1:
         enriched["teams"] = teams[0]
 
+    # ── Cross-encoder reranking ───────────────────────────────────────────────
+    # Score every block against the query; keep only the top-5 most relevant.
+    # This trims noise and keeps the prompt well within the token budget,
+    # which is the single biggest contributor to LLM latency.
     if cricsheet_blocks:
-        enriched["cricsheet_data"] = "\n\n".join(cricsheet_blocks)
+        reranked = rerank_context_blocks(prompt, cricsheet_blocks, top_k=5)
+        enriched["cricsheet_data"] = "\n\n".join(reranked)
+        enriched["_reranked_blocks"] = len(reranked)
+
+    # ── Cache the RAG result (excludes caller context like format/grounded) ───
+    rag_only: Dict[str, Any] = {
+        k: v for k, v in enriched.items()
+        if k not in context  # only store keys we computed here
+    }
+    _set_rag_cached(cache_key, rag_only)
 
     return enriched

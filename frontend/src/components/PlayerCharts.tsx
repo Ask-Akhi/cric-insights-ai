@@ -4,6 +4,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
 import { PlayerStats } from '../lib/api'
+import RecentForm from './RecentForm'
 
 // ── Cricsheet name → Wikipedia article title (for photo lookup) ───────────────
 const WIKI_NAME: Record<string, string> = {
@@ -232,9 +233,7 @@ export default function PlayerCharts({ stats }: { stats: PlayerStats }) {
             🎳 Bowling
           </button>
         </div>
-      )}
-
-      {/* ════════════════════════════════════════════ BATTING PANEL */}
+      )}      {/* ════════════════════════════════════════════ BATTING PANEL */}
       {batter && tab === 'bat' && (
         <div className="space-y-4">
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -245,6 +244,15 @@ export default function PlayerCharts({ stats }: { stats: PlayerStats }) {
             <StatPill label="4s"      value={batter.fours}                       accent={GOLD} />
             <StatPill label="6s"      value={batter.sixes}                       accent={ORANGE} />
           </div>
+
+          {/* Recent form bar chart */}
+          {batter.runs_per_match.length > 0 && (
+            <RecentForm
+              type="bat"
+              entries={batter.runs_per_match.slice(-5).map(d => ({ value: d.runs, label: d.match ?? 'match' }))}
+              className="px-1"
+            />
+          )}
 
           {batter.runs_per_match.length > 0 && (
             <Section title="Runs & Strike Rate — Last 20 Innings">
@@ -314,9 +322,7 @@ export default function PlayerCharts({ stats }: { stats: PlayerStats }) {
             </div>
           )}
         </div>
-      )}
-
-      {/* ════════════════════════════════════════════ BOWLING PANEL */}
+      )}      {/* ════════════════════════════════════════════ BOWLING PANEL */}
       {bowler && tab === 'bowl' && (
         <div className="space-y-4">
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -327,6 +333,15 @@ export default function PlayerCharts({ stats }: { stats: PlayerStats }) {
             <StatPill label="S/R"     value={bowler.strike_rate}                  accent={GOLD} />
             <StatPill label="Balls"   value={bowler.total_balls.toLocaleString()} accent={ORANGE} />
           </div>
+
+          {/* Recent form bar chart */}
+          {bowler.wickets_per_match.length > 0 && (
+            <RecentForm
+              type="bowl"
+              entries={bowler.wickets_per_match.slice(-5).map(d => ({ value: d.wickets, label: d.match ?? 'match' }))}
+              className="px-1"
+            />
+          )}
 
           {bowler.wickets_per_match.length > 0 && (
             <Section title="Wickets & Economy — Last 20 Matches">

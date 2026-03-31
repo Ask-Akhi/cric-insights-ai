@@ -14,6 +14,27 @@ export interface AskResult {
   players: string[]
   mode: AskMode
   data_sources: string[]   // e.g. ["Cricsheet RAG", "Google Search"]
+  latency_ms: number
+  rag_cache_hit: boolean
+}
+
+/** Structured API error shape returned by backend */
+export interface ApiError {
+  code: string
+  message: string
+  detail?: string
+}
+
+function parseApiError(status: number, body: string): string {
+  try {
+    const json = JSON.parse(body)
+    if (json?.error?.message) return json.error.message
+    if (json?.detail) return json.detail
+  } catch { /* not JSON */ }
+  if (status === 504) return 'Request timed out — the AI is busy. Try a simpler question.'
+  if (status === 503) return 'AI service unavailable — check your API key in Railway Variables.'
+  if (status === 429) return 'Too many requests — please wait a moment and try again.'
+  return `Server error ${status}. Please try again.`
 }
 
 export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {
@@ -40,18 +61,68 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`API ${res.status}: ${text}`)
+    throw new Error(parseApiError(res.status, text))
   }
   const json = await res.json()
   return {
-    answer:       json.answer       ?? '',
-    intent:       json.intent       ?? 'general',
-    players:      json.players      ?? [],
-    mode:         json.mode         ?? 'graph',
-    data_sources: json.data_sources ?? [],
+    answer:        json.answer        ?? '',
+    intent:        json.intent        ?? 'general',
+    players:       json.players       ?? [],
+    mode:          json.mode          ?? 'graph',
+    data_sources:  json.data_sources  ?? [],
+    latency_ms:    json.latency_ms    ?? 0,
+    rag_cache_hit: json.rag_cache_hit ?? false,
   }
 }
 
+export interface PlayerSearchResult {
+  players: string[]
+  query: string
+  count: number
+  sources?: { alias_hits: number; live_hits: number }
+}
+
+export async function callPlayerSearch(apiBase: string, q: string): Promise<string[]> {
+  if (q.length < 2) return []
+  const res = await fetch(`${apiBase}/api/players/search?q=${encodeURIComponent(q)}&limit=10`)
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  const json = await res.json()
+  return json.players ?? []
+}
+
+export async function callPlayerSearchFull(apiBase: string, q: string, limit = 10): Promise<PlayerSearchResult> {
+  if (q.length < 2) return { players: [], query: q, count: 0 }
+  const res = await fetch(`${apiBase}/api/players/search?q=${encodeURIComponent(q)}&limit=${limit}`)
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  return res.json()
+}
+
+// ── Match schedule ────────────────────────────────────────────────────────────
+export interface ScheduleMatch {
+  match_id: string
+  date: string
+  venue: string
+  city: string
+  format: string
+  competition: string
+  team1: string
+  team2: string
+}
+
+export async function callSchedule(
+  apiBase: string,
+  format?: string,
+  daysAhead = 30,
+): Promise<ScheduleMatch[]> {
+  const params = new URLSearchParams({ days_ahead: String(daysAhead) })
+  if (format) params.set('format', format)
+  const res = await fetch(`${apiBase}/api/matches/schedule?${params}`)
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  const json = await res.json()
+  return json.schedule ?? []
+}
+
+// ── Player stats ──────────────────────────────────────────────────────────────
 export interface PlayerStats {
   player: string
   found: boolean
@@ -84,14 +155,6 @@ export async function callPlayerStats(apiBase: string, playerName: string, forma
   const res = await fetch(`${apiBase}/api/players/${encodeURIComponent(playerName)}/stats${params}`)
   if (!res.ok) throw new Error(`API ${res.status}`)
   return res.json()
-}
-
-// ── Players search ────────────────────────────────────────────────────────────
-export async function callPlayerSearch(apiBase: string, q: string): Promise<string[]> {
-  const res = await fetch(`${apiBase}/api/players/?q=${encodeURIComponent(q)}&limit=20`)
-  if (!res.ok) throw new Error(`API ${res.status}`)
-  const json = await res.json()
-  return json.players ?? []
 }
 
 /**

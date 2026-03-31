@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { callPlayerSearch } from '../lib/api'
+import { callPlayerSearchFull } from '../lib/api'
 
 interface Props {
   apiBase: string
@@ -12,7 +12,7 @@ interface Props {
 
 /**
  * A player search input with debounced autocomplete from Cricsheet data.
- * Uses /api/players/?q=... to find exact Cricsheet player names.
+ * Uses /api/players/search?q=... — alias hits shown with ⚡ indicator.
  */
 export default function PlayerSearchInput({
   apiBase,
@@ -23,8 +23,9 @@ export default function PlayerSearchInput({
   id = 'player-search',
 }: Props) {
   const [suggestions, setSuggestions] = useState<string[]>([])
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [aliasCount, setAliasCount]   = useState(0)
+  const [open, setOpen]               = useState(false)
+  const [loading, setLoading]         = useState(false)
   const [highlighted, setHighlighted] = useState(-1)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -33,17 +34,19 @@ export default function PlayerSearchInput({
     (q: string) => {
       if (q.trim().length < 2) {
         setSuggestions([])
+        setAliasCount(0)
         setOpen(false)
         return
       }
       setLoading(true)
-      callPlayerSearch(apiBase, q)
-        .then(results => {
-          setSuggestions(results)
-          setOpen(results.length > 0)
+      callPlayerSearchFull(apiBase, q)
+        .then(result => {
+          setSuggestions(result.players)
+          setAliasCount(result.sources?.alias_hits ?? 0)
+          setOpen(result.players.length > 0)
           setHighlighted(-1)
         })
-        .catch(() => setSuggestions([]))
+        .catch(() => { setSuggestions([]); setAliasCount(0) })
         .finally(() => setLoading(false))
     },
     [apiBase],
@@ -133,8 +136,7 @@ export default function PlayerSearchInput({
             maxHeight: '220px',
             overflowY: 'auto',
           }}
-        >
-          {suggestions.map((name, i) => (
+        >      {suggestions.map((name, i) => (
             <li
               key={name}
               role="option"
@@ -149,7 +151,14 @@ export default function PlayerSearchInput({
               }}
             >
               <span className="text-base">🏏</span>
-              <span className="font-medium">{name}</span>
+              <span className="font-medium flex-1">{name}</span>
+              {i < aliasCount && (
+                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0"
+                  style={{ background: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.2)' }}
+                  title="Matched via player alias — instant result">
+                  ⚡ alias
+                </span>
+              )}
             </li>
           ))}
         </ul>

@@ -8,7 +8,7 @@ interface Props {
   icon: string
   title: string
   subtitle?: string
-  onSubmit: () => Promise<{ answer: string; intent?: AskIntent; players?: string[]; mode?: AskMode; data_sources?: string[] } | string>
+  onSubmit: () => Promise<{ answer: string; intent?: AskIntent; players?: string[]; mode?: AskMode; data_sources?: string[]; latency_ms?: number; rag_cache_hit?: boolean } | string>
   onQuestionAsked?: () => void
   children: React.ReactNode
   sidePanel?: React.ReactNode
@@ -216,8 +216,7 @@ function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }
   )
 }
 
-export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {
-  const [loading, setLoading]         = useState(false)
+export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {  const [loading, setLoading]         = useState(false)
   const [answer, setAnswer]           = useState<string | null>(null)
   const [intent, setIntent]           = useState<AskIntent>('general')
   const [players, setPlayers]         = useState<string[]>([])
@@ -226,10 +225,13 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
   const [error, setError]             = useState<string | null>(null)
   const [elapsed, setElapsed]         = useState<number>(0)
   const [copied, setCopied]           = useState(false)
+  const [serverLatency, setServerLatency] = useState<number | null>(null)
+  const [ragCacheHit, setRagCacheHit]     = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setAnswer(null); setError(null); setElapsed(0); setLoading(true); setCopied(false); setDataSources([])
+    setAnswer(null); setError(null); setElapsed(0); setLoading(true); setCopied(false)
+    setDataSources([]); setServerLatency(null); setRagCacheHit(false)
     const start = Date.now()
     timerRef.current = setInterval(() => setElapsed(Date.now() - start), 100)
     try {
@@ -242,6 +244,8 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
         setPlayers(result.players ?? [])
         setMode(result.mode ?? 'graph')
         setDataSources(result.data_sources ?? [])
+        setServerLatency(result.latency_ms ?? null)
+        setRagCacheHit(result.rag_cache_hit ?? false)
       }
       onQuestionAsked?.()
     } catch (err: unknown) {
@@ -381,9 +385,21 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                       <span className="text-[9px] text-slate-500 font-medium">
                         👤 {players.join(', ')}
                       </span>
+                    )}                    {isCached && <span className="stat-badge stat-badge-gold">⚡ cached</span>}
+                    {ragCacheHit && !isCached && (
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md"
+                        style={{ background: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)' }}>
+                        ⚡ RAG cached
+                      </span>
                     )}
-                    {isCached && <span className="stat-badge stat-badge-gold">⚡ cached</span>}
-                    <span className="ml-auto text-xs text-slate-600 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
+                    <span className="ml-auto flex items-center gap-2 text-xs text-slate-600 font-mono">
+                      {serverLatency !== null && (
+                        <span title="Server-side processing time" className="text-[10px] text-slate-600">
+                          🖥 {(serverLatency / 1000).toFixed(1)}s
+                        </span>
+                      )}
+                      <span title="Round-trip time">{(elapsed / 1000).toFixed(1)}s</span>
+                    </span>
                   </div><AnswerBlock answer={answer} isCached={!!isCached} /><div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>                    <button
                       className="btn-ghost"
                       onClick={() => {
