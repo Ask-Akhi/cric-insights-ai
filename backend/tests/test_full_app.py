@@ -56,7 +56,8 @@ def test_post_ask_not_405():
 
 def test_post_ask_returns_200_or_5xx():
     r = client.post("/api/ask", json=ASK_PAYLOAD)
-    assert r.status_code in (200, 500, 503), f"Unexpected {r.status_code}"
+    # 503 = timeout / quota exhausted; 504 = upstream gateway timeout (Railway/proxy)
+    assert r.status_code in (200, 500, 503, 504), f"Unexpected {r.status_code}"
 
 def test_post_ask_response_shape():
     r = client.post("/api/ask", json=ASK_PAYLOAD)

@@ -101,8 +101,8 @@ class StatsService:
         faced = bat.group_by("bowler").len().rename({"len": "balls"})
         struggles = (
             dismissals
-            .join(dots,  on="bowler", how="full")
-            .join(faced, on="bowler", how="full")
+            .join(dots,  on="bowler", how="full", coalesce=True)
+            .join(faced, on="bowler", how="full", coalesce=True)
             .with_columns(
                 (pl.col("dots").fill_null(0) / pl.col("balls").fill_null(1))
                 .alias("dot_rate")
@@ -200,7 +200,7 @@ class StatsService:
             .rename({"player_dismissed": "batter", "len": "dismissals"})
         )
         rates = (
-            balls_vs.join(dis_vs, on="batter", how="full")
+            balls_vs.join(dis_vs, on="batter", how="full", coalesce=True)
             .with_columns(
                 (pl.col("dismissals").fill_null(0) / pl.col("balls").fill_null(1))
                 .alias("rate")
