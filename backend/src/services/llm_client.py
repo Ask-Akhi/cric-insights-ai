@@ -6,9 +6,10 @@ from typing import Dict, Any, Optional
 from .llm_settings import LLM_PROVIDER, LLM_MODEL, GEMINI_API_KEY, OPENAI_API_KEY
 
 # ─── Token / Prompt limits ─────────────────────────────────────────────────
-MAX_PROMPT_CHARS = 12000     # ~3000 tokens input — enough for full squad/context
-MAX_RESPONSE_TOKENS = 8192   # full detailed answers, never truncated
-CACHE_TTL_SECONDS = 1800     # 30 min cache — shorter so current-season data refreshes
+MAX_PROMPT_CHARS         = 12000  # ~3000 tokens — for non-grounded (LangGraph) path
+MAX_PROMPT_CHARS_GROUNDED = 4000  # grounded path: shorter prompt → faster Gemini response
+MAX_RESPONSE_TOKENS = 8192        # full detailed answers, never truncated
+CACHE_TTL_SECONDS = 1800          # 30 min cache — shorter so current-season data refreshes
 
 # ─── In-memory response cache ──────────────────────────────────────────────
 _cache: Dict[str, Dict] = {}   # key → {answer, ts} — cleared on restart
@@ -139,7 +140,8 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     from google.genai import types
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    full_prompt = _build_prompt(prompt, context)
+    # Grounded path uses a shorter prompt so Gemini responds faster (web search adds ~15s)
+    full_prompt = _build_prompt(prompt, context, grounded=grounded)
 
     # Grounding requires models that support it — 2.0-flash+ only
     # gemini-2.5-flash and gemini-2.0-flash both support Google Search grounding
@@ -264,8 +266,10 @@ def _openai_response(prompt: str, context: Dict[str, Any]) -> str:
         return f"❌ OpenAI error: {str(e)}"
 
 
-def _build_prompt(prompt: str, context: Dict[str, Any]) -> str:
+def _build_prompt(prompt: str, context: Dict[str, Any], grounded: bool = False) -> str:
     today = date.today().strftime("%d %B %Y")
+    # Grounded path: tighter prompt budget so Gemini + web search finishes in time
+    max_chars = MAX_PROMPT_CHARS_GROUNDED if grounded else MAX_PROMPT_CHARS
 
     system = (
         f"You are an expert cricket analyst AI — the equivalent of a senior ESPNcricinfo journalist combined with a data scientist. Today's date is {today}.\n\n"
@@ -322,7 +326,7 @@ def _build_prompt(prompt: str, context: Dict[str, Any]) -> str:
         )
         # Truncate only the Cricsheet block if the full prompt would exceed the limit,
         # always preserving the system prompt and the question.
-        budget = MAX_PROMPT_CHARS - len(full) - len(question_suffix) - 80
+        budget = max_chars - len(full) - len(question_suffix) - 80
         if budget > 500:
             if len(cricsheet_block) > budget:
                 cricsheet_block = cricsheet_block[:budget] + "\n...[cricsheet data truncated]\n--- END CRICSHEET DATA ---\n\n"

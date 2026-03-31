@@ -76,19 +76,6 @@ function ModeBadge({ mode }: { mode: AskMode }) {
   )
 }
 
-// ── splitAnswer — DISABLED: always show full answer, no collapsing ───────────
-// History: many iterations of smart splitting (table-guard, heading-guard,
-// intro-sentence guard, charsSoFar threshold) all had edge cases that caused
-// legitimate content to be hidden behind "Show more". The AI responses are
-// structured markdown (headings + lists + tables) that MUST be read as a whole.
-// Showing a "Show more" button on a prediction response is worse UX than just
-// rendering the full answer — the card already scrolls.
-// → Summary = full text, detail = null → no expand button ever shown.
-function splitAnswer(raw: string): { summary: string; detail: string | null } {
-  const text = raw.replace(/^⚡ \*\(cached\)\*\n\n/, '')
-  return { summary: text, detail: null }
-}
-
 function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }) {
   const cleanAnswer = isCached ? answer.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer
   return (
@@ -214,8 +201,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     <span className="text-xs text-slate-600 ml-auto font-mono">{(elapsed / 1000).toFixed(1)}s</span>
                   </div>
                   <ThinkingSteps elapsed={elapsed} />
-                </>
-              ) : error ? (
+                </>              ) : error ? (
                 <div className="flex items-start gap-3 text-sm">
                   {error.includes('API_KEY') || error.includes('not configured') ? (
                     <div className="w-full rounded-xl p-4 space-y-2" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -223,6 +209,24 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                       <p className="text-slate-400 text-xs leading-relaxed">
                         Set <code className="text-orange-300">GEMINI_API_KEY</code> in Railway → Variables.
                       </p>
+                    </div>
+                  ) : error.includes('timed out') || error.includes('503') || error.includes('busy') ? (
+                    <div className="w-full rounded-xl p-4 space-y-3" style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                      <p className="text-yellow-400 font-semibold">⏱ AI is taking too long</p>
+                      <p className="text-slate-400 text-xs leading-relaxed">
+                        The AI service is busy or the question is too complex for the current timeout.
+                      </p>
+                      <ul className="text-slate-500 text-xs space-y-1 list-none">
+                        <li>• Try a <strong className="text-slate-400">shorter, more specific question</strong></li>
+                        <li>• Disable <strong className="text-slate-400">Live web search</strong> for faster answers</li>
+                        <li>• Or click Retry — the response may already be cached</li>
+                      </ul>
+                      <button
+                        className="btn-primary text-xs py-1.5 px-4 mt-1"
+                        onClick={() => { setError(null); document.querySelector('form button[type="submit"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) }}
+                      >
+                        🔄 Retry
+                      </button>
                     </div>
                   ) : (
                     <><span className="text-lg flex-shrink-0 text-red-400">❌</span><span className="text-red-400">{error}</span></>

@@ -10,11 +10,12 @@ import time
 
 log = logging.getLogger(__name__)
 
-# Railway hard-kills connections at 60s — give ourselves 52s before that.
-# Grounded (web search) path gets 45s, Tier 2 fallback gets 30s.
+# Railway hard-kills connections at 60s — stay well under that.
+# Grounded path: web search alone can take 15-20s, plus LLM generation.
+# We run Tier1 (web) then Tier2 (no web) sequentially — total budget = 55s.
 _ASK_TIMEOUT          = 52   # non-grounded / graph path
-_ASK_TIMEOUT_GROUNDED = 45   # grounded Tier 1 (web search call)
-_ASK_TIMEOUT_TIER2    = 30   # grounded Tier 2 fallback (no web, just LLM)
+_ASK_TIMEOUT_GROUNDED = 38   # grounded Tier 1 (web search + LLM — tight so Tier2 fits)
+_ASK_TIMEOUT_TIER2    = 20   # grounded Tier 2 fallback (no web, RAG + training data only)
 
 router = APIRouter()
 
