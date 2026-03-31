@@ -21,6 +21,33 @@ from typing import Any, Dict, List, Optional
 # Cross-encoder reranker (pure Python, zero extra dependencies)
 from .reranker import rerank_context_blocks, split_cricsheet_into_blocks
 
+# ── Singleton CricsheetProvider — loaded ONCE per worker process ─────────────
+# Every fetch_* function below re-used this instead of calling
+# CricsheetProvider().load() which re-scans all parquet files each call.
+_cricsheet_provider = None
+_cricsheet_lock = None
+
+def _get_provider():
+    """Return the module-level singleton CricsheetProvider, loading it once.
+    Reuses the players router's singleton if available to avoid double parquet load."""
+    global _cricsheet_provider, _cricsheet_lock
+    import threading
+    if _cricsheet_lock is None:
+        _cricsheet_lock = threading.Lock()
+    if _cricsheet_provider is None:
+        with _cricsheet_lock:
+            if _cricsheet_provider is None:
+                try:
+                    # Prefer the already-loaded players router singleton
+                    from ..routers.players import _get_provider as _players_provider
+                    _cricsheet_provider = _players_provider()
+                except Exception:
+                    from ..providers.cricsheet_provider import CricsheetProvider
+                    p = CricsheetProvider()
+                    p.load()
+                    _cricsheet_provider = p
+    return _cricsheet_provider
+
 # ── RAG-level cache: cache the fully-built rag context so repeated identical
 #    queries (same prompt + same format) skip all Cricsheet I/O entirely.
 #    Key = MD5 of (prompt + format). TTL = 10 minutes.
@@ -222,9 +249,7 @@ def fetch_venue_context(venue: str, fmt: str = "T20") -> str:
     """Fetch and format venue/ground records from Cricsheet."""
     try:
         import polars as pl
-        from ..providers.cricsheet_provider import CricsheetProvider
-        provider = CricsheetProvider()
-        provider.load()
+        provider = _get_provider()
         df = provider.get_venue_stats(venue, fmt=fmt)
         if df.is_empty():
             return ""
@@ -275,9 +300,7 @@ def fetch_h2h_context(team_a: str, team_b: str, fmt: str = "T20") -> str:
     """Fetch and format head-to-head history between two teams."""
     try:
         import polars as pl
-        from ..providers.cricsheet_provider import CricsheetProvider
-        provider = CricsheetProvider()
-        provider.load()
+        provider = _get_provider()
         df = provider.get_head_to_head(team_a, team_b, fmt=fmt)
         if df.is_empty():
             return ""
@@ -323,9 +346,7 @@ def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[st
         return ""
     try:
         import polars as pl
-        from ..providers.cricsheet_provider import CricsheetProvider
-        provider = CricsheetProvider()
-        provider.load()
+        provider = _get_provider()
         lf = provider.datasets.get("balls")
         if lf is None:
             return ""

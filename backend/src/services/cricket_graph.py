@@ -78,33 +78,40 @@ def intent_router_node(state: CricketState) -> dict:
     players = detect_players_in_prompt(prompt)
     is_cricket = is_cricket_question(prompt)
 
-    # For non-cricket questions skip the LLM call entirely
+    # For non-cricket questions skip any LLM call entirely
     if not is_cricket and not players:
         return {"intent": "general", "players": players, "is_cricket": False}
 
-    try:
-        resp = _llm(0.0).invoke([          # temperature=0 → deterministic classification
-            SystemMessage(content=_INTENT_SYSTEM),
-            HumanMessage(content=prompt),
-        ])
-        raw = resp.content.strip().lower().split()[0]  # first word only
-        intent = raw if raw in {"stats", "compare", "fantasy", "predict", "general", "none"} else "general"
-        # "none" means it's not cricket — treat is_cricket as False
-        if intent == "none":
-            return {"intent": "general", "players": players, "is_cricket": False}
-    except Exception as e:
-        log.warning("Intent LLM failed (%s) — falling back to keyword heuristic", e)
-        # Keyword fallback so the graph never breaks if LLM is unavailable
-        pl = prompt.lower()
-        if any(w in pl for w in ["vs", "versus", "compare", "better", "who is better"]):
-            intent = "compare"
-        elif any(w in pl for w in ["fantasy", "dream11", "captain", "xi"]):
-            intent = "fantasy"
-        elif any(w in pl for w in ["predict", "winner", "who will win"]):
-            intent = "predict"
-        elif any(w in pl for w in ["stat", "average", "run", "wicket", "record", "career"]):
-            intent = "stats"
-        else:
+    # ── Fast keyword classifier — covers ~95% of cricket questions ────────────
+    # Run this FIRST. Only fall through to the LLM for genuinely ambiguous cases.
+    pl_lower = prompt.lower()
+    intent: str | None = None
+
+    if any(w in pl_lower for w in ["fantasy", "dream11", "captain", "vice captain", " xi ", "pick for"]):
+        intent = "fantasy"
+    elif any(w in pl_lower for w in ["predict", "who will win", "who wins", "winner", "forecast"]):
+        intent = "predict"
+    elif any(w in pl_lower for w in [" vs ", " versus ", "compare", "better than", "who is better",
+                                      "head to head", "h2h", "difference between"]):
+        intent = "compare"
+    elif any(w in pl_lower for w in ["average", "strike rate", "economy", "career", "record",
+                                      "wickets", "centuries", "stats", "ranking", "top scorer",
+                                      "leading wicket", "highest", "most runs"]):
+        intent = "stats"
+
+    # ── LLM classifier only for ambiguous cases (no keyword matched) ──────────
+    if intent is None:
+        try:
+            resp = _llm(0.0).invoke([
+                SystemMessage(content=_INTENT_SYSTEM),
+                HumanMessage(content=prompt),
+            ])
+            raw = resp.content.strip().lower().split()[0]
+            intent = raw if raw in {"stats", "compare", "fantasy", "predict", "general", "none"} else "general"
+            if intent == "none":
+                return {"intent": "general", "players": players, "is_cricket": False}
+        except Exception as e:
+            log.warning("Intent LLM failed (%s) — defaulting to general", e)
             intent = "general"
 
     return {"intent": intent, "players": players, "is_cricket": is_cricket}

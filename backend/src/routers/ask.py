@@ -10,8 +10,12 @@ import time
 
 log = logging.getLogger(__name__)
 
-# Railway hard-kills connections at 60s — give ourselves 55s before that
-_ASK_TIMEOUT = 55
+# Railway hard-kills connections at 60s — give ourselves 52s before that.
+# Grounded (web search) path gets 45s — web search itself takes ~10-15s,
+# leaving 30-35s for the LLM which is plenty for gemini-2.5-flash.
+_ASK_TIMEOUT          = 52   # non-grounded / graph path
+_ASK_TIMEOUT_GROUNDED = 45   # grounded Tier 1 (web search call)
+_ASK_TIMEOUT_TIER2    = 30   # grounded Tier 2 fallback (no web, just LLM)
 
 # cricket_graph is imported lazily inside the endpoint to avoid blocking startup
 router = APIRouter()
@@ -75,19 +79,18 @@ async def ask(req: AskRequest):
             req.prompt[:60], rag_cache_hit, enriched.get("_reranked_blocks", "?")
         )
     else:
-        log.info("RAG: no local Cricsheet data for '%s'", req.prompt[:60])# ── GROUNDED path ────────────────────────────────────────────────────────
+        log.info("RAG: no local Cricsheet data for '%s'", req.prompt[:60])    # ── GROUNDED path ────────────────────────────────────────────────────────
     if req.grounded:
-        answer = ""        # Tier 1: RAG context + Google Search grounding
+        answer = ""
+        # Tier 1: RAG context + Google Search grounding
         # → Best answer: verified Cricsheet stats + live web data
-        # Wrapped in asyncio.wait_for so Railway's 60s hard-kill never fires first.
-        # Use get_running_loop() — get_event_loop() is deprecated in Python 3.10+
         try:
             loop = asyncio.get_running_loop()
             answer = await asyncio.wait_for(
                 loop.run_in_executor(
                     None, get_llm_response_grounded, req.prompt, enriched
                 ),
-                timeout=_ASK_TIMEOUT,
+                timeout=_ASK_TIMEOUT_GROUNDED,   # ← 45s, not 55s
             )
             if answer and answer.strip() and not answer.startswith("❌"):
                 data_sources.append("Google Search")
@@ -96,7 +99,7 @@ async def ask(req: AskRequest):
                 log.warning(f"Grounded Tier 1 empty/error ({answer!r:.80}) — trying Tier 2")
                 answer = ""
         except asyncio.TimeoutError:
-            log.warning("Grounded Tier 1 timed out — trying Tier 2")
+            log.warning("Grounded Tier 1 timed out after %ds — trying Tier 2", _ASK_TIMEOUT_GROUNDED)
             answer = ""
         except ValueError as e:
             raise HTTPException(status_code=503, detail=str(e))
@@ -104,15 +107,16 @@ async def ask(req: AskRequest):
             log.warning(f"Grounded Tier 1 exception: {e} — trying Tier 2")
             answer = ""
 
-        # Tier 2: RAG context + Gemini training data (no web search)
-        # → Still accurate for historical players; RAG injects any local Cricsheet stats        if not answer:
-            log.info("Grounded Tier 2: RAG + non-grounded Gemini training data")
+        # Tier 2: RAG context + Gemini training data (no web search, faster)
+        if not answer:
+            log.info("Grounded Tier 2: RAG + Gemini training data (no web search)")
             try:
+                loop = asyncio.get_running_loop()
                 answer = await asyncio.wait_for(
                     loop.run_in_executor(
                         None, get_llm_response, req.prompt, enriched
                     ),
-                    timeout=_ASK_TIMEOUT,
+                    timeout=_ASK_TIMEOUT_TIER2,   # ← 30s, not 55s
                 )
                 if answer and answer.strip() and not answer.startswith("❌"):
                     if has_rag:
@@ -145,15 +149,13 @@ async def ask(req: AskRequest):
             data_sources=data_sources,
             latency_ms=int((time.monotonic() - _t0) * 1000),
             rag_cache_hit=rag_cache_hit,
-        )
-
-    # ── LangGraph multi-step pipeline (non-grounded) ─────────────────────────
+        )    # ── LangGraph multi-step pipeline (non-grounded) ─────────────────────────
     # Pass the RAG-enriched context so graph nodes have local Cricsheet stats too.
     try:
         from ..services.cricket_graph import run_graph
         result = await asyncio.wait_for(
             run_graph(req.prompt, enriched),
-            timeout=_ASK_TIMEOUT,
+            timeout=_ASK_TIMEOUT,   # 52s
         )
     except asyncio.TimeoutError:
         log.warning(f"LangGraph timed out for prompt: '{req.prompt[:60]}'")
