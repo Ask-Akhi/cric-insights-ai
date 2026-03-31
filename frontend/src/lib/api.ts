@@ -30,13 +30,18 @@ function parseApiError(status: number, body: string): string {
     const json = JSON.parse(body)
     if (json?.error?.message) return json.error.message
     if (json?.detail) return json.detail
-  } catch { /* not JSON */ }  if (status === 504) return 'Request timed out — the AI is busy. Try a simpler question or disable Live web search.'
+  } catch {
+    // not JSON
+  }
+
+  if (status === 504) return 'Request timed out — the AI is busy. Try a simpler question or disable Live web search.'
   if (status === 503) return 'Request timed out — the AI took too long. Try a shorter question or disable Live web search.'
   if (status === 429) return 'Too many requests — please wait a moment and try again.'
   return `Server error ${status}. Please try again.`
 }
 
-export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {  // 58s client timeout — Railway kills at 60s; backend times out at 52s and returns 503
+export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {
+  // 58s client timeout — Railway kills at 60s; backend times out at 52s and returns 503
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 58_000)
 
@@ -47,7 +52,8 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ use_graph: true, ...payload }),
       signal: controller.signal,
-    })  } catch (err: unknown) {
+    })
+  } catch (err: unknown) {
     clearTimeout(timeoutId)
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error('Request timed out (>58s). Try a shorter question or disable Live web search.')
@@ -60,6 +66,7 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
     const text = await res.text()
     throw new Error(parseApiError(res.status, text))
   }
+
   const json = await res.json()
   return {
     answer:        json.answer        ?? '',
@@ -71,6 +78,7 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
     rag_cache_hit: json.rag_cache_hit ?? false,
   }
 }
+
 
 export interface PlayerSearchResult {
   players: string[]
