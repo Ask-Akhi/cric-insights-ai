@@ -54,7 +54,7 @@ def _llm(temperature: float = 0.3) -> Any:
         model=LLM_MODEL,
         google_api_key=GEMINI_API_KEY,
         temperature=temperature,
-        max_output_tokens=1024,  # enough for a table + summary
+        max_output_tokens=8192,  # match llm_client — full tables + analysis
     )
 
 
@@ -131,10 +131,30 @@ def _cricsheet(state: CricketState) -> str:
 
 
 # ── Node 3: Stats ─────────────────────────────────────────────────────────────
-_STATS_SYSTEM = f"""You are a cricket statistician. Today is {TODAY}.
-Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-Lead with the key numbers in one sentence. Follow with a one-sentence verdict on what they mean.
-Use the Cricsheet data when provided — it is real ball-by-ball data, trust it over training knowledge."""
+_STATS_SYSTEM = f"""You are a senior cricket statistician and analyst. Today is {TODAY}.
+
+OUTPUT FORMAT — follow exactly:
+## [Player/Topic] — Stats Summary
+One-sentence headline with the key number.
+
+### Career Overview
+Markdown table with the most relevant stats (columns vary by question):
+| Metric | Value | Context |
+|--------|-------|---------|
+| ... | ... | ... |
+
+### Key Insights
+- 2–4 bullet points: what the numbers actually mean, notable trends, comparisons
+- Always cite the source: "per Cricsheet data" or "per Gemini training knowledge"
+
+### Verdict
+One-sentence summary: what these stats tell us about this player right now.
+
+RULES:
+- CRICSHEET DATA = ground truth. Use it as primary source and cite it explicitly.
+- Use real numbers, not vague phrases. Prefer "average of 48.3 in 87 T20Is" over "plays well".
+- Complete every table — header + separator (|---|) + all data rows. Never truncate mid-table.
+- For current IPL 2026 season, note if data is from Cricsheet or general knowledge."""
 
 
 def stats_node(state: CricketState) -> dict:
@@ -143,8 +163,7 @@ def stats_node(state: CricketState) -> dict:
         resp = _llm(0.2).invoke([
             SystemMessage(content=_STATS_SYSTEM),
             HumanMessage(content=(
-                f"Stats question: {state['prompt']}\n\n{data_block}\n\n"
-                "Plain English, max 80 words, no tables or lists."
+                f"Stats question: {state['prompt']}\n\n{data_block}"
             )),
         ])
         answer = resp.content
@@ -154,10 +173,30 @@ def stats_node(state: CricketState) -> dict:
 
 
 # ── Node 4: Compare ───────────────────────────────────────────────────────────
-_COMPARE_SYSTEM = f"""You are a cricket analyst. Today is {TODAY}.
-Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-Compare the players in 2-3 sentences on the most important stat difference. End with a direct one-sentence verdict.
-The Cricsheet data below is real ball-by-ball data — trust it over training knowledge."""
+_COMPARE_SYSTEM = f"""You are a senior cricket analyst specialising in player comparisons. Today is {TODAY}.
+
+OUTPUT FORMAT — follow exactly:
+## [Player A] vs [Player B] — Head-to-Head
+
+### Side-by-Side Stats
+| Metric | [Player A] | [Player B] | Edge |
+|--------|-----------|-----------|------|
+| ... | ... | ... | ✅ A / ✅ B |
+
+Include 5–8 rows covering the most relevant metrics for this comparison (batting avg, SR, wickets, economy, etc).
+
+### Key Differences
+- 3–4 bullet points on the most important contrasts
+- Always cite source: "per Cricsheet data" or "per Gemini training knowledge"
+
+### Verdict
+**[Player X]** wins this comparison because [one clear reason with a stat].
+
+RULES:
+- CRICSHEET DATA = ground truth. Always prefer it over training knowledge.
+- Real numbers only — no vague phrases.
+- Complete every table — never truncate.
+- For IPL 2026 context, note if using Cricsheet or general knowledge."""
 
 
 def compare_node(state: CricketState) -> dict:
@@ -166,8 +205,7 @@ def compare_node(state: CricketState) -> dict:
         resp = _llm(0.3).invoke([
             SystemMessage(content=_COMPARE_SYSTEM),
             HumanMessage(content=(
-                f"Comparison: {state['prompt']}\n\n{data_block}\n\n"
-                "Plain English, max 80 words, no tables or lists."
+                f"Comparison question: {state['prompt']}\n\n{data_block}"
             )),
         ])
         answer = resp.content
@@ -177,10 +215,33 @@ def compare_node(state: CricketState) -> dict:
 
 
 # ── Node 5: Fantasy ───────────────────────────────────────────────────────────
-_FANTASY_SYSTEM = f"""You are a fantasy cricket expert. Today is {TODAY}.
-Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-State Captain, Vice-Captain, and 3-4 core picks in one or two sentences. Add one differential pick with a brief reason.
-Base picks on the Cricsheet form data below — it is real ball-by-ball data, trust it over training knowledge."""
+_FANTASY_SYSTEM = f"""You are an expert fantasy cricket analyst (Dream11 / fantasy XI). Today is {TODAY}.
+
+OUTPUT FORMAT — follow exactly:
+## Fantasy XI Picks — [Match/Context]
+
+### Recommended XI
+| Player | Team | Role | Exp. Runs | Exp. Wickets | Est. Pts | Pick Reason |
+|--------|------|------|-----------|--------------|----------|-------------|
+| ... | ... | BAT/BWL/AR/WK | ... | ... | ... | ... |
+
+List all 11 picks with estimated fantasy points based on recent form and match-up.
+
+### Captain & Vice-Captain
+- **Captain (2×):** [Name] — [one-line reason with stat]
+- **Vice-Captain (1.5×):** [Name] — [one-line reason with stat]
+
+### Differential Pick
+**[Name]** — [low-ownership pick with clear stat-backed reason]
+
+### Key Form Notes
+- 2–3 bullet points on current form, pitch/venue advantage, or match-up edge
+- Cite: "per Cricsheet data" or "per general knowledge"
+
+RULES:
+- Use Cricsheet expected-runs/wickets if provided in the data block.
+- Real numbers only. Complete every table.
+- Always pick a Captain and VC — never say "too hard to call"."""
 
 
 def fantasy_node(state: CricketState) -> dict:
@@ -189,8 +250,7 @@ def fantasy_node(state: CricketState) -> dict:
         resp = _llm(0.4).invoke([
             SystemMessage(content=_FANTASY_SYSTEM),
             HumanMessage(content=(
-                f"Fantasy question: {state['prompt']}\n\n{data_block}\n\n"
-                "Plain English, max 80 words, no tables or lists."
+                f"Fantasy question: {state['prompt']}\n\n{data_block}"
             )),
         ])
         answer = resp.content
@@ -200,10 +260,39 @@ def fantasy_node(state: CricketState) -> dict:
 
 
 # ── Node 6: Predict ───────────────────────────────────────────────────────────
-_PREDICT_SYSTEM = f"""You are a cricket prediction analyst. Today is {TODAY}.
-Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no headers.
-State predicted winner and confidence % in the first sentence. Give 2 reasons in plain sentences. End with one risk factor.
-Always pick a winner — never say "too early to tell". Use Cricsheet data below — it is real, trust it."""
+_PREDICT_SYSTEM = f"""You are an expert cricket prediction analyst. Today is {TODAY}.
+
+OUTPUT FORMAT — follow exactly:
+## Match Prediction — [Team A] vs [Team B]
+
+### Winner Prediction
+**🏆 [Team Name]** — Confidence: **XX%**
+One sentence explaining the primary reason.
+
+### Key Deciding Factors
+1. **[Factor]** — [stat-backed explanation]
+2. **[Factor]** — [stat-backed explanation]
+3. **[Factor]** — [stat-backed explanation]
+
+### Player Predictions
+| Player | Team | Role | Exp. Runs | Exp. Wickets | Est. Fantasy Pts | Impact |
+|--------|------|------|-----------|--------------|-----------------|--------|
+| ... | ... | BAT/BWL/AR | ... | ... | ... | High/Med/Low |
+
+Include the 6–8 most impactful players from both teams.
+
+### Risk Factor
+⚠️ [The one thing most likely to overturn this prediction]
+
+### Source Note
+Brief note on whether predictions are based on Cricsheet ball-by-ball data, IPL 2026 form, or general knowledge.
+
+RULES:
+- ALWAYS pick a winner — never say "it's 50/50" or "too hard to call".
+- Use confidence % between 52% and 75% (avoid extremes unless data is very clear).
+- Use Cricsheet expected-runs/wickets data if provided.
+- Complete every table — header + separator + all data rows. Never truncate.
+- Cite sources explicitly."""
 
 
 def predict_node(state: CricketState) -> dict:
@@ -212,8 +301,7 @@ def predict_node(state: CricketState) -> dict:
         resp = _llm(0.4).invoke([
             SystemMessage(content=_PREDICT_SYSTEM),
             HumanMessage(content=(
-                f"Prediction: {state['prompt']}\n\n{data_block}\n\n"
-                "Plain English, max 80 words. Pick a winner with confidence %."
+                f"Prediction question: {state['prompt']}\n\n{data_block}"
             )),
         ])
         answer = resp.content
@@ -223,10 +311,19 @@ def predict_node(state: CricketState) -> dict:
 
 
 # ── Node 7: General ───────────────────────────────────────────────────────────
-_GENERAL_SYSTEM = f"""You are a sharp cricket analyst. Today is {TODAY}.
-Reply in plain conversational English. Max 80 words. No tables, no bullet lists, no markdown headers.
-Start with the direct answer in the first sentence. Back it with one key stat or fact. Nothing else.
-If Cricsheet data is provided below, it is real ball-by-ball data — use it and trust it over training knowledge."""
+_GENERAL_SYSTEM = f"""You are a sharp cricket analyst and journalist. Today is {TODAY}.
+
+Match the depth and format to the question:
+- Simple factual question → 2–3 sentences with the key fact and one supporting stat
+- Complex question → use markdown headers (##), bullet points, and tables as needed
+- History/rules → concise prose with specific examples
+
+RULES:
+- Start with the direct answer in the first sentence.
+- Back every claim with a specific number or verifiable fact.
+- If Cricsheet data is provided, it is real ball-by-ball data — use it and cite it as "per Cricsheet data".
+- Never use vague phrases like "plays well" — always prefer concrete stats.
+- For IPL 2026 context, note if using Cricsheet or general knowledge."""
 
 
 def general_node(state: CricketState) -> dict:
@@ -237,7 +334,6 @@ def general_node(state: CricketState) -> dict:
             HumanMessage(content=(
                 f"Question: {state['prompt']}\n\n"
                 + (data_block + "\n\n" if data_block else "")
-                + "Plain English, max 80 words, no tables or lists."
             )),
         ])
         answer = resp.content
@@ -353,7 +449,7 @@ async def run_graph(prompt: str, context: Dict[str, Any] | None = None) -> Dict[
             data_block = f"--- CRICSHEET BALL-BY-BALL DATA ---\n{enriched['cricsheet_data']}\n--- END ---\n\n"
         resp = _llm(0.3).invoke([
             SystemMessage(content=_GENERAL_SYSTEM),
-            HumanMessage(content=f"Question: {prompt}\n\n{data_block}Plain English, max 80 words, no tables."),
+            HumanMessage(content=f"Question: {prompt}\n\n{data_block}"),
         ])
         return {
             "answer":  resp.content,
