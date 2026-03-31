@@ -91,9 +91,7 @@ def _score_block(query_tokens: List[str], block_text: str) -> float:
     domain_score = sum(
         1.5 for qt in query_tokens
         if qt in _DOMAIN_BOOST and qt in block_set
-    )
-
-    # ── Component 3: Header match bonus ──────────────────────────────────────
+    )    # ── Component 3: Header match bonus ──────────────────────────────────────
     # The first line of each block is usually the block type + player/venue name.
     # Matching query terms in the header is a strong relevance signal.
     first_line = block_text.split("\n")[0].lower()
@@ -102,7 +100,16 @@ def _score_block(query_tokens: List[str], block_text: str) -> float:
         2.0 for qt in query_tokens if qt in header_tokens
     )
 
-    return overlap_score + domain_score + header_score
+    # ── Component 4: Prediction table boost ──────────────────────────────────
+    # Blocks containing pre-built prediction tables must ALWAYS rank high when
+    # the query is about predictions/fantasy — these are the primary data source.
+    prediction_boost = 0.0
+    block_lower = block_text.lower()
+    if "player predictions table" in block_lower or "est. fantasy pts" in block_lower:
+        if any(kw in " ".join(query_tokens) for kw in ["predict", "fantasy", "winner", "expected"]):
+            prediction_boost = 15.0  # very high — ensures table is never dropped
+
+    return overlap_score + domain_score + header_score + prediction_boost
 
 
 def rerank_context_blocks(

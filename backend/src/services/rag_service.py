@@ -335,12 +335,123 @@ def fetch_h2h_context(team_a: str, team_b: str, fmt: str = "T20") -> str:
         return ""
 
 
-def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[str], fmt: str = "T20") -> str:
+def _get_team_recent_players(team: str, fmt: str = "T20", limit: int = 11) -> List[str]:
+    """Get the most recently active players for a team from Cricsheet data.
+
+    Looks at the last 5 matches for the team and returns players who appeared
+    most frequently (approximating the current squad).
     """
-    Build a MARKDOWN TABLE of player fantasy predictions:
-    | Player | Team | Role | Expected Runs | Expected Wickets | Est. Fantasy Pts | Pick Reason |
-    
-    Returns pre-formatted table so it always renders (not truncated).
+    try:
+        import polars as pl
+        provider = _get_provider()
+        lf = provider.datasets.get("balls")
+        if lf is None:
+            return []
+
+        # Find last 5 match_ids where this team batted
+        team_lower = team.lower()
+        matches = (
+            lf.filter(pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
+            .filter(pl.col("format") == fmt)
+            .select(["match_id", "start_date"])
+            .unique(subset=["match_id"])
+            .sort("start_date", descending=True)
+            .head(5)
+            .collect()
+        )
+        if matches.is_empty():
+            # Fallback: try without format filter
+            matches = (
+                lf.filter(pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
+                .select(["match_id", "start_date"])
+                .unique(subset=["match_id"])
+                .sort("start_date", descending=True)
+                .head(5)
+                .collect()
+            )
+        if matches.is_empty():
+            return []
+
+        match_ids = matches.get_column("match_id").to_list()
+
+        # Get all batters + bowlers from those matches who played for this team
+        df = (
+            lf.filter(pl.col("match_id").is_in(match_ids))
+            .collect()
+        )
+
+        # Batters from this team
+        batters = (
+            df.filter(pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
+            .select(pl.col("batter").alias("player"))
+        )
+        # Bowlers bowling AGAINST this team are FROM the other team — we want
+        # bowlers FROM this team, which means they bowled when the OTHER team batted
+        bowlers = (
+            df.filter(~pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
+            .select(pl.col("bowler").alias("player"))
+        )
+
+        combined = (
+            pl.concat([batters, bowlers], how="vertical")
+            .filter(pl.col("player").is_not_null())
+            .group_by("player")
+            .agg(pl.len().alias("appearances"))
+            .sort("appearances", descending=True)
+            .head(limit)
+        )
+        return combined.get_column("player").to_list()
+    except Exception:
+        return []
+
+
+def _detect_player_team(player: str, team_a: str, team_b: str) -> str:
+    """Determine which team a player belongs to from recent Cricsheet data."""
+    try:
+        import polars as pl
+        provider = _get_provider()
+        df = provider.get_player_events(player)
+        if df.is_empty():
+            return "?"
+
+        # Check which team this player batted for most recently
+        bat_df = df.filter(pl.col("batter") == player)
+        if not bat_df.is_empty():
+            last_team = (
+                bat_df.sort("start_date", descending=True)
+                .head(1)
+                .get_column("batting_team")
+                .to_list()[0]
+            )
+            if last_team:
+                ta_lower = team_a.lower()
+                tb_lower = team_b.lower()
+                lt_lower = last_team.lower()
+                if ta_lower in lt_lower or lt_lower in ta_lower:
+                    return team_a
+                if tb_lower in lt_lower or lt_lower in tb_lower:
+                    return team_b
+                return last_team
+        return "?"
+    except Exception:
+        return "?"
+
+
+def fetch_fantasy_prediction_context(
+    player_names: List[str],
+    venue: Optional[str],
+    fmt: str = "T20",
+    team_a: str = "",
+    team_b: str = "",
+) -> str:
+    """
+    Build a MARKDOWN TABLE of player fantasy predictions using an improved model:
+      - Career avg + recent form (last 10) + venue factor + form trend
+      - Correct milestone bonus logic
+      - Team detection from Cricsheet data
+      - Richer pick-reason labels
+
+    Returns pre-formatted markdown table injected into RAG context.
     """
     if not player_names:
         return ""
@@ -353,74 +464,178 @@ def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[st
     except Exception:
         return ""
 
+    # ── Pre-compute venue averages if venue is provided ───────────────────────
+    venue_avg_runs: Optional[float] = None
+    if venue:
+        try:
+            vdf = provider.get_venue_stats(venue, fmt=fmt)
+            if not vdf.is_empty():
+                venue_avg_runs = float(
+                    vdf.group_by(["match_id", "innings"])
+                    .agg(pl.col("runs_off_bat").sum().alias("runs"))
+                    ["runs"].mean()
+                )
+        except Exception:
+            pass
+
     rows: List[dict] = []
 
-    for player in player_names[:12]:  # cap at 12 for table size
+    for player in player_names[:14]:  # cap at 14 for table size
         try:
             df = provider.get_player_events(player)
             if df.is_empty():
                 continue
 
-            # Detect role (batter, bowler, both)
-            has_bat = not df.filter(pl.col("batter") == player).is_empty()
-            has_bowl = not df.filter(pl.col("bowler") == player).is_empty()
-            role = "Bat/Bowl" if (has_bat and has_bowl) else ("Bowler" if has_bowl else "Batter")
-            
-            exp_runs_str = "-"
-            exp_wk_str = "-"
-            exp_pts = 0
-            pick_reason = ""
+            # Filter to format
+            df_fmt = df.filter(pl.col("format") == fmt)
+            if df_fmt.is_empty():
+                df_fmt = df  # fallback to all formats if no data in this format
 
-            # ── Batting prediction ────────────────────────────────────────
+            # Detect role
+            has_bat = not df_fmt.filter(pl.col("batter") == player).is_empty()
+            has_bowl = not df_fmt.filter(pl.col("bowler") == player).is_empty()
+            if has_bat and has_bowl:
+                # Check balance — more bat innings than bowl innings?
+                bat_count = df_fmt.filter(pl.col("batter") == player).select(pl.col("match_id").n_unique()).item()
+                bowl_count = df_fmt.filter(pl.col("bowler") == player).select(pl.col("match_id").n_unique()).item()
+                if bat_count > bowl_count * 2:
+                    role = "BAT"
+                elif bowl_count > bat_count * 2:
+                    role = "BWL"
+                else:
+                    role = "AR"
+            elif has_bowl:
+                role = "BWL"
+            else:
+                role = "BAT"
+
+            exp_runs = 0.0
+            exp_wk = 0.0
+            exp_pts = 0.0
+            reasons: List[str] = []
+
+            # ── Batting prediction (improved model) ───────────────────────
             if has_bat:
-                bat = df.filter(pl.col("batter") == player)
+                bat = df_fmt.filter(pl.col("batter") == player)
                 per_innings = (
                     bat.group_by(["match_id", "innings"])
                     .agg(pl.col("runs_off_bat").sum().alias("runs"))
                     .sort("match_id")
                 )
-                career_avg = float(per_innings["runs"].mean()) if per_innings.height > 0 else 0.0
-                recent_avg = float(per_innings.tail(10)["runs"].mean()) if per_innings.height >= 3 else career_avg
-                
-                exp_runs = round(recent_avg * 0.7 + career_avg * 0.3, 1)
-                bonus = 10 if exp_runs >= 50 else (20 if exp_runs >= 100 else 0)
-                exp_pts_bat = round(exp_runs + bonus, 1)
-                exp_runs_str = str(exp_runs)
-                exp_pts += exp_pts_bat
-                
-                if recent_avg > career_avg * 1.1:
-                    pick_reason = "Good form"
+                total_innings = per_innings.height
+                if total_innings == 0:
+                    career_avg = 0.0
+                    recent_avg = 0.0
+                else:
+                    career_avg = float(per_innings["runs"].mean())
+                    # Recent form: last 10 innings (or fewer if not enough data)
+                    recent_n = min(10, total_innings)
+                    recent = per_innings.tail(recent_n)
+                    recent_avg = float(recent["runs"].mean())
 
-            # ── Bowling prediction ────────────────────────────────────────
+                    # Form trend: compare last 5 vs previous 5
+                    if total_innings >= 10:
+                        last5 = float(per_innings.tail(5)["runs"].mean())
+                        prev5 = float(per_innings.tail(10).head(5)["runs"].mean())
+                        if last5 > prev5 * 1.15:
+                            reasons.append("🔥 Hot form")
+                        elif last5 < prev5 * 0.75:
+                            reasons.append("📉 Dip in form")
+
+                # Weighted prediction: recent 50%, career 30%, venue 20%
+                venue_adj = 1.0
+                if venue_avg_runs is not None and career_avg > 0:
+                    # If venue avg is higher than overall T20 avg (~25), boost; else reduce
+                    overall_avg = 25.0  # typical T20 innings avg
+                    venue_adj = 0.8 + 0.4 * (venue_avg_runs / max(overall_avg, 1))
+                    venue_adj = max(0.7, min(1.4, venue_adj))  # clamp
+
+                exp_runs = round(recent_avg * 0.5 + career_avg * 0.3 + recent_avg * 0.2 * venue_adj, 1)
+
+                # Fantasy points for batting (milestone bonuses fixed)
+                if exp_runs >= 100:
+                    bonus = 20
+                elif exp_runs >= 50:
+                    bonus = 10
+                elif exp_runs >= 30:
+                    bonus = 4
+                else:
+                    bonus = 0
+                # SR bonus: Dream11 gives +6 for SR>170 in T20
+                sr_bonus = 0
+                if total_innings > 0:
+                    total_balls = bat.select(pl.len()).item()
+                    total_runs_raw = float(bat.select(pl.col("runs_off_bat").sum()).item())
+                    if total_balls > 0:
+                        career_sr = total_runs_raw / total_balls * 100
+                        if career_sr > 170:
+                            sr_bonus = 6
+                        elif career_sr > 150:
+                            sr_bonus = 4
+
+                exp_pts += exp_runs + bonus + sr_bonus
+
+            # ── Bowling prediction (improved model) ───────────────────────
             if has_bowl:
-                bowl = df.filter(pl.col("bowler") == player)
+                bowl = df_fmt.filter(pl.col("bowler") == player)
                 per_match_wk = (
                     bowl.group_by("match_id")
                     .agg(pl.col("player_dismissed").is_not_null().sum().alias("wk"))
                     .sort("match_id")
                 )
-                career_wk_avg = float(per_match_wk["wk"].mean()) if per_match_wk.height > 0 else 0.0
-                recent_wk_avg = float(per_match_wk.tail(10)["wk"].mean()) if per_match_wk.height >= 3 else career_wk_avg
-                
-                exp_wk = round(recent_wk_avg * 0.7 + career_wk_avg * 0.3, 2)
-                exp_pts_bowl = round(exp_wk * 25, 1)
-                exp_wk_str = str(exp_wk)
-                exp_pts += exp_pts_bowl
-                
-                if not pick_reason and recent_wk_avg > career_wk_avg * 1.1:
-                    pick_reason = "Bowling form"
+                total_matches = per_match_wk.height
+                if total_matches == 0:
+                    career_wk_avg = 0.0
+                    recent_wk_avg = 0.0
+                else:
+                    career_wk_avg = float(per_match_wk["wk"].mean())
+                    recent_n = min(10, total_matches)
+                    recent_wk_avg = float(per_match_wk.tail(recent_n)["wk"].mean())
 
-            if not pick_reason:
-                pick_reason = "Consistent" if exp_pts > 0 else "Emerging"
+                    if total_matches >= 10:
+                        last5_wk = float(per_match_wk.tail(5)["wk"].mean())
+                        prev5_wk = float(per_match_wk.tail(10).head(5)["wk"].mean())
+                        if last5_wk > prev5_wk * 1.2:
+                            reasons.append("🎯 Wicket-taking form")
+
+                exp_wk = round(recent_wk_avg * 0.6 + career_wk_avg * 0.4, 2)
+
+                # Economy-based bonus
+                econ_bonus = 0
+                total_bowl_balls = bowl.select(pl.len()).item()
+                total_bowl_runs = float(bowl.select((pl.col("runs_off_bat") + pl.col("extras")).sum()).item())
+                if total_bowl_balls > 0:
+                    career_econ = total_bowl_runs / (total_bowl_balls / 6)
+                    if career_econ < 7.0:
+                        econ_bonus = 4
+                    elif career_econ < 8.0:
+                        econ_bonus = 2
+
+                # Fantasy points for bowling (25 per wicket is Dream11 standard)
+                exp_pts += round(exp_wk * 25 + econ_bonus, 1)
+
+            # ── Determine pick reason ─────────────────────────────────────
+            if not reasons:
+                if exp_pts >= 40:
+                    reasons.append("⭐ Premium pick")
+                elif exp_pts >= 25:
+                    reasons.append("✅ Consistent")
+                else:
+                    reasons.append("💡 Emerging")
+
+            # ── Detect team ───────────────────────────────────────────────
+            team_label = "?"
+            if team_a and team_b:
+                team_label = _detect_player_team(player, team_a, team_b)
 
             rows.append({
                 "player": player,
-                "team": "TBD",  # Would need team-player mapping; skip for now
+                "team": team_label,
                 "role": role,
-                "exp_runs": exp_runs_str,
-                "exp_wk": exp_wk_str,
+                "exp_runs": str(exp_runs) if has_bat else "-",
+                "exp_wk": str(exp_wk) if has_bowl else "-",
                 "exp_pts": round(exp_pts, 1),
-                "reason": pick_reason,
+                "reason": " · ".join(reasons),
             })
 
         except Exception:
@@ -429,22 +644,31 @@ def fetch_fantasy_prediction_context(player_names: List[str], venue: Optional[st
     # ── Build markdown table ──────────────────────────────────────────────────
     if not rows:
         return ""
-    
+
     # Sort by expected fantasy pts descending
     rows.sort(key=lambda r: r["exp_pts"], reverse=True)
-    
+
     table_lines = [
         "## Player Predictions Table",
         "",
-        "| Player | Role | Expected Runs | Expected Wickets | Est. Fantasy Pts | Pick Reason |",
-        "|---|---|---|---|---|---|",
+        "Here are the expected contributions from key players in this match:",
+        "",
+        "| Player | Team | Role | Exp. Runs | Exp. Wickets | Est. Fantasy Pts | Pick Reason |",
+        "|--------|------|------|-----------|--------------|-----------------|-------------|",
     ]
-    
+
     for row in rows:
         table_lines.append(
-            f"| {row['player']} | {row['role']} | {row['exp_runs']} | {row['exp_wk']} | {row['exp_pts']} | {row['reason']} |"
+            f"| {row['player']} | {row['team']} | {row['role']} "
+            f"| {row['exp_runs']} | {row['exp_wk']} | {row['exp_pts']} | {row['reason']} |"
         )
-    
+
+    # Captain / VC recommendation
+    if len(rows) >= 2:
+        table_lines.append("")
+        table_lines.append(f"**Captain pick:** {rows[0]['player']} ({rows[0]['exp_pts']} pts)")
+        table_lines.append(f"**Vice-Captain pick:** {rows[1]['player']} ({rows[1]['exp_pts']} pts)")
+
     return "\n".join(table_lines)
 
 
@@ -452,7 +676,10 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
     fmt = str(context.get("format", "T20"))
 
     # ── RAG-level cache: skip all Cricsheet I/O for identical recent queries ──
-    cache_key = _rag_cache_key(prompt, fmt)
+    # Include team_a/team_b in the cache key so different matchups don't collide
+    team_a_ctx = str(context.get("team_a", ""))
+    team_b_ctx = str(context.get("team_b", ""))
+    cache_key = _rag_cache_key(f"{prompt}|{team_a_ctx}|{team_b_ctx}", fmt)
     cached = _get_rag_cached(cache_key)
     if cached is not None:
         # Merge cached RAG result with caller-provided context (format, grounded etc.)
@@ -469,23 +696,58 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
     teams   = detect_teams_in_prompt(prompt)
     venue   = detect_venue_in_prompt(prompt)
 
+    # Also pick up team_a / team_b from the frontend context dict
+    if team_a_ctx and team_a_ctx not in [t for t in teams]:
+        ctx_teams = detect_teams_in_prompt(team_a_ctx)
+        for t in ctx_teams:
+            if t not in teams:
+                teams.append(t)
+    if team_b_ctx and team_b_ctx not in [t for t in teams]:
+        ctx_teams = detect_teams_in_prompt(team_b_ctx)
+        for t in ctx_teams:
+            if t not in teams:
+                teams.append(t)
+
+    # Also pick up venue from context
+    venue_ctx = str(context.get("venue", ""))
+    if not venue and venue_ctx:
+        venue = venue_ctx
+
     cricsheet_blocks: List[str] = []
+
+    # ── Auto-detect players from team rosters when none in prompt ─────────────
+    # This is the key fix: MatchPredict sends team names but no player names.
+    # We look up the most recent squad for each team from Cricsheet data.
+    is_fantasy_or_predict = any(
+        kw in prompt.lower()
+        for kw in ("fantasy", "predict", "top scorer", "top run", "expected",
+                    "who will score", "xi", "winner", "who wins")
+    )
+
+    if not players and is_fantasy_or_predict and len(teams) >= 2:
+        log.info("Auto-detecting squad players for %s vs %s", teams[0], teams[1])
+        squad_a = _get_team_recent_players(teams[0], fmt=fmt, limit=11)
+        squad_b = _get_team_recent_players(teams[1], fmt=fmt, limit=11)
+        players = squad_a + squad_b
+        if players:
+            log.info("Auto-detected %d players from team rosters", len(players))
 
     # ── Player stats ──────────────────────────────────────────────────────────
     if players:
-        stats_text = fetch_player_context(players, fmt=fmt)
+        # For prediction queries with many players, only fetch detailed stats for top 6
+        stats_players = players[:6] if is_fantasy_or_predict and len(players) > 6 else players[:3]
+        stats_text = fetch_player_context(stats_players, fmt=fmt)
         if stats_text:
-            # Split multi-player block into individual blocks for reranking
             cricsheet_blocks.extend(split_cricsheet_into_blocks(stats_text))
         enriched["detected_players"] = ", ".join(players)
 
-    # ── Fantasy prediction data ───────────────────────────────────────────────
-    is_fantasy_or_predict = any(
-        kw in prompt.lower()
-        for kw in ("fantasy", "predict", "top scorer", "top run", "expected", "who will score", "xi")
-    )
+    # ── Fantasy / prediction data table ───────────────────────────────────────
     if is_fantasy_or_predict and players:
-        fantasy_text = fetch_fantasy_prediction_context(players, venue, fmt=fmt)
+        fantasy_text = fetch_fantasy_prediction_context(
+            players, venue, fmt=fmt,
+            team_a=teams[0] if len(teams) >= 1 else "",
+            team_b=teams[1] if len(teams) >= 2 else "",
+        )
         if fantasy_text:
             cricsheet_blocks.append(fantasy_text)
 
@@ -506,11 +768,11 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
         enriched["teams"] = teams[0]
 
     # ── Cross-encoder reranking ───────────────────────────────────────────────
-    # Score every block against the query; keep only the top-5 most relevant.
-    # This trims noise and keeps the prompt well within the token budget,
-    # which is the single biggest contributor to LLM latency.
+    # Score every block against the query; keep only the top-k most relevant.
+    # For prediction queries, allow more blocks (the table is large + important).
+    top_k = 7 if is_fantasy_or_predict else 5
     if cricsheet_blocks:
-        reranked = rerank_context_blocks(prompt, cricsheet_blocks, top_k=5)
+        reranked = rerank_context_blocks(prompt, cricsheet_blocks, top_k=top_k)
         enriched["cricsheet_data"] = "\n\n".join(reranked)
         enriched["_reranked_blocks"] = len(reranked)
 

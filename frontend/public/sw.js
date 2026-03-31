@@ -1,5 +1,5 @@
 // Cache version — bump this to force old SW to uninstall and re-fetch everything
-const CACHE = 'cric-insights-v3';
+const CACHE = 'cric-insights-v4';
 
 // On install: claim immediately, don't wait
 self.addEventListener('install', e => {

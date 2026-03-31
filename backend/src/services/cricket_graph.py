@@ -275,11 +275,16 @@ One sentence explaining the primary reason.
 3. **[Factor]** — [stat-backed explanation]
 
 ### Player Predictions
+If a Player Predictions Table is provided in the CRICSHEET DATA, reproduce it COMPLETELY —
+every row, every column. Do NOT omit any rows or show only the header.
+If no pre-built table is provided, create one with the 6–8 most impactful players:
+
 | Player | Team | Role | Exp. Runs | Exp. Wickets | Est. Fantasy Pts | Impact |
 |--------|------|------|-----------|--------------|-----------------|--------|
 | ... | ... | BAT/BWL/AR | ... | ... | ... | High/Med/Low |
 
-Include the 6–8 most impactful players from both teams.
+### Captain & Vice-Captain Picks
+If Captain/VC recommendations are in the data, include them. Otherwise pick the top 2.
 
 ### Risk Factor
 ⚠️ [The one thing most likely to overturn this prediction]
@@ -290,8 +295,8 @@ Brief note on whether predictions are based on Cricsheet ball-by-ball data, IPL 
 RULES:
 - ALWAYS pick a winner — never say "it's 50/50" or "too hard to call".
 - Use confidence % between 52% and 75% (avoid extremes unless data is very clear).
-- Use Cricsheet expected-runs/wickets data if provided.
-- Complete every table — header + separator + all data rows. Never truncate.
+- Use Cricsheet expected-runs/wickets data if provided — these are COMPUTED from real ball-by-ball data.
+- Complete every table — header + separator + ALL data rows. NEVER output a table header without data rows.
 - Cite sources explicitly."""
 
 

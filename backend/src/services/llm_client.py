@@ -7,7 +7,7 @@ from .llm_settings import LLM_PROVIDER, LLM_MODEL, GEMINI_API_KEY, OPENAI_API_KE
 
 # ─── Token / Prompt limits ─────────────────────────────────────────────────
 MAX_PROMPT_CHARS         = 12000  # ~3000 tokens — for non-grounded (LangGraph) path
-MAX_PROMPT_CHARS_GROUNDED = 4000  # grounded path: shorter prompt → faster Gemini response
+MAX_PROMPT_CHARS_GROUNDED = 6000  # grounded path: allow room for prediction tables
 MAX_RESPONSE_TOKENS = 8192        # full detailed answers, never truncated
 CACHE_TTL_SECONDS = 1800          # 30 min cache — shorter so current-season data refreshes
 
@@ -291,7 +291,7 @@ def _build_prompt(prompt: str, context: Dict[str, Any], grounded: bool = False) 
         "- For STATS questions: lead with a stat table, then context, then summary.\n"
         "- For COMPARE questions: use a side-by-side table with an 'Edge' column, then give a definitive verdict.\n"
         "- For FANTASY questions: give a ranked table with columns [Player | Team | Role | Expected Runs | Expected Wickets | Est. Fantasy Pts | Pick Reason], then Captain/VC picks.\n"
-        "- For PREDICT questions: give winner + confidence %, then 3 key deciding factors, then a player predictions table.\n"
+        "- For PREDICT questions: give winner + confidence %, then 3 key deciding factors, then a COMPLETE player predictions table (header + separator + ALL data rows — never just a header). Use the Cricsheet prediction table if provided.\n"
         "- For GENERAL questions: match the depth to the question — concise for simple, structured for complex.\n\n"
         "=== CRITICAL TABLE FORMAT ===\n"
         "Every markdown table MUST have ALL three parts:\n"
