@@ -1,3 +1,4 @@
+import re
 import time
 import hashlib
 from datetime import date
@@ -83,8 +84,30 @@ def get_llm_response_grounded(prompt: str, context: Dict[str, Any] = {}) -> str:
     return get_llm_response(prompt, context)
 
 
+def _clean_response(text: str) -> str:
+    """Strip Gemini <think> blocks and biography-dump sentences from web grounding."""
+    # Remove <think>...</think> reasoning blocks (Gemini 2.5 flash thinking mode)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Remove biography-dump lines that Gemini echoes verbatim from Google Search.
+    # These are non-table, non-heading lines that are very long and contain bio phrases.
+    bio_re = re.compile(
+        r"(He is the (?:first|only|youngest|oldest)\b|"
+        r"born \d{1,2} \w+ \d{4}|"
+        r"\bHe has played \d+|"
+        r"\b(?:Right|Left)-arm (?:fast|medium|spin|off-spin|leg-spin))",
+        re.IGNORECASE,
+    )
+    lines = text.splitlines()
+    clean = []
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith("|") and not s.startswith("#") and bio_re.search(s) and len(s) > 100:
+            continue   # skip bio-dump line
+        clean.append(line)
+    return "\n".join(clean).strip()
+
+
 def _is_truncated_table(text: str) -> bool:
-    """Return True if the response ends with a table header row but no data rows."""
     if not text:
         return False
     lines = [l for l in text.splitlines() if l.strip()]
@@ -198,7 +221,7 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                         pass
                     text = retry_text or text
 
-                return text
+                return _clean_response(text) if text else text
 
             except Exception as e:
                 err = str(e)
@@ -257,7 +280,9 @@ def _build_prompt(prompt: str, context: Dict[str, Any]) -> str:
         "8. CURRENT SEASON — include IPL 2026 context when discussing players.\n"
         "9. NON-CRICKET REDIRECT — if the question is not about cricket, respond: '🏏 I am a cricket specialist. Try asking about a player, match, or fantasy team.'\n"
         "10. NUMBERS over vague claims — always prefer 'average of 48.3 in 87 matches' over 'plays well consistently'.\n"
-        "11. END WITH VALUE — always close with a summary, recommendation, or actionable insight.\n\n"
+        "11. NO BIOGRAPHIES — NEVER write paragraphs of biographical text about a player (birthdate, early life, clubs played for, etc). "
+        "For each player use ONLY one compact table row. Biographical text from web search MUST NOT appear in your output.\n"
+        "12. END WITH VALUE — always close with a summary, recommendation, or actionable insight.\n\n"
         "=== OUTPUT QUALITY ===\n"
         "- For STATS questions: lead with a stat table, then context, then summary.\n"
         "- For COMPARE questions: use a side-by-side table with an 'Edge' column, then give a definitive verdict.\n"
