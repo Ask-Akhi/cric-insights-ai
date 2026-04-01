@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
-from ..services.llm_client import get_llm_response, get_llm_response_grounded
+from ..services.llm_client import get_llm_response_grounded
 from ..services.rag_service import build_rag_context, detect_players_in_prompt
 import logging
 import asyncio
@@ -10,12 +10,14 @@ import time
 
 log = logging.getLogger(__name__)
 
-# Railway hard-kills connections at 60s — stay well under that.
-# Grounded path: web search alone can take 15-20s, plus LLM generation.
-# We run Tier1 (web) then Tier2 (no web) sequentially — total budget = 55s.
-_ASK_TIMEOUT          = 52   # non-grounded / graph path
-_ASK_TIMEOUT_GROUNDED = 38   # grounded Tier 1 (web search + LLM — tight so Tier2 fits)
-_ASK_TIMEOUT_TIER2    = 20   # grounded Tier 2 fallback (no web, RAG + training data only)
+# Railway hard-kills connections at 60s — budget ladder:
+#   Tier 1 (grounded web search): 50s — Railway cold start (0-15s) + web search (10-25s) + LLM (5-15s)
+#   Tier 2 (LangGraph graph, no web): 14s — RAG is pre-built, graph responds in 8-15s
+#   Total worst-case: 50 + 14 = 64s — Railway's 60s limit means Tier2 only runs if Tier1 finishes early.
+#   In practice Tier1 succeeds in <50s and Tier2 is only hit on timeout/error.
+_ASK_TIMEOUT          = 52   # non-grounded / LangGraph path
+_ASK_TIMEOUT_GROUNDED = 50   # grounded Tier 1 — raised from 38s; gives headroom for cold Railway dyno
+_ASK_TIMEOUT_TIER2    = 14   # Tier 2: LangGraph (no web, uses pre-built RAG) — fast enough to fit in leftover budget
 
 router = APIRouter()
 
@@ -101,39 +103,57 @@ async def ask(req: AskRequest):
             log.warning("Grounded Tier 1 timed out after %ds — trying Tier 2", _ASK_TIMEOUT_GROUNDED)
             answer = ""
         except ValueError as e:
-            raise HTTPException(status_code=503, detail=str(e))
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": {
+                        "code": "GROUNDED_ERROR",
+                        "message": str(e),
+                        "detail": "Google Search grounding failed.",
+                        "retry_with_graph": True,
+                    }
+                },
+            )
         except Exception as e:
             log.warning("Grounded Tier 1 exception: %s — trying Tier 2", e)
             answer = ""
 
-        # Tier 2: RAG + Gemini training data (no web search, faster)
+        # Tier 2: LangGraph (no web search, uses pre-built RAG — 8-15s)
         if not answer:
-            log.info("Grounded Tier 2: RAG + Gemini training data (no web search)")
+            log.info("Grounded Tier 2: LangGraph fallback (no web search, pre-built RAG)")
             try:
-                loop = asyncio.get_running_loop()
-                answer = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None, get_llm_response, req.prompt, enriched
-                    ),
+                from ..services.cricket_graph import run_graph
+                tier2_result = await asyncio.wait_for(
+                    run_graph(req.prompt, enriched),
                     timeout=_ASK_TIMEOUT_TIER2,
                 )
+                answer = tier2_result.get("answer", "")
                 if answer and answer.strip() and not answer.startswith("❌"):
                     note = (
-                        "\n\n---\n> ℹ️ *Web search unavailable — using Cricsheet local data + Gemini training knowledge.*"
+                        "\n\n---\n> ℹ️ *Web search unavailable — answer uses Cricsheet local data + Gemini knowledge.*"
                         if has_rag else
-                        "\n\n---\n> ℹ️ *Web search unavailable and no local Cricsheet data found — using Gemini training knowledge only.*"
+                        "\n\n---\n> ℹ️ *Web search unavailable and no local Cricsheet data found — using Gemini knowledge only.*"
                     )
                     answer = answer + note
-                    data_sources.append("Gemini training data")
-                    log.info("Grounded Tier 2: OK")
+                    data_sources.extend(
+                        s for s in ["LangGraph", "Cricsheet RAG"] if s not in data_sources
+                    )
+                    log.info("Grounded Tier 2: OK (mode=%s)", tier2_result.get("mode"))
                 else:
                     log.warning("Grounded Tier 2 empty/error")
                     answer = ""
             except asyncio.TimeoutError:
-                log.warning("Grounded Tier 2 timed out")
-                raise HTTPException(
+                log.warning("Grounded Tier 2 timed out after %ds", _ASK_TIMEOUT_TIER2)
+                return JSONResponse(
                     status_code=503,
-                    detail="Request timed out — the AI took too long. Please try a shorter or simpler question.",
+                    content={
+                        "error": {
+                            "code": "TIMEOUT",
+                            "message": "Request timed out — the AI took too long. Please try a shorter or simpler question.",
+                            "detail": "Both grounded search and LangGraph fallback timed out.",
+                            "retry_with_graph": True,
+                        }
+                    },
                 )
             except Exception as e:
                 log.warning("Grounded Tier 2 failed: %s", e)
@@ -143,11 +163,14 @@ async def ask(req: AskRequest):
         if not answer:
             answer = _FALLBACK
 
+        # mode="fallback" when web search didn't contribute (Tier 2 was used)
+        response_mode = "grounded" if "Google Search" in data_sources else "fallback"
+
         return AskResponse(
             answer=answer,
             intent="general",
             players=players,
-            mode="grounded",
+            mode=response_mode,
             data_sources=data_sources,
             latency_ms=int((time.monotonic() - _t0) * 1000),
             rag_cache_hit=rag_cache_hit,
