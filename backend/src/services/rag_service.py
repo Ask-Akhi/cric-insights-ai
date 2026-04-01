@@ -13,10 +13,13 @@ the top-k most relevant blocks are injected into the LLM prompt. This:
   - Avoids hitting token budget limits on large squad queries
 """
 from __future__ import annotations
+import logging
 import re
 import time
 import hashlib
 from typing import Any, Dict, List, Optional
+
+log = logging.getLogger(__name__)
 
 # Cross-encoder reranker (pure Python, zero extra dependencies)
 from .reranker import rerank_context_blocks, split_cricsheet_into_blocks
