@@ -23,21 +23,39 @@ export interface ApiError {
   code: string
   message: string
   detail?: string
+  retry_with_graph?: boolean
 }
 
-function parseApiError(status: number, body: string): string {
+/** Tagged error class so callers can inspect retry hints */
+export class CricketApiError extends Error {
+  readonly code: string
+  readonly retryWithGraph: boolean
+  constructor(message: string, code = 'UNKNOWN', retryWithGraph = false) {
+    super(message)
+    this.name = 'CricketApiError'
+    this.code = code
+    this.retryWithGraph = retryWithGraph
+  }
+}
+
+function parseApiError(status: number, body: string): CricketApiError {
   try {
     const json = JSON.parse(body)
-    if (json?.error?.message) return json.error.message
-    if (json?.detail) return json.detail
+    const err = json?.error
+    if (err?.message) {
+      return new CricketApiError(err.message, err.code ?? String(status), !!err.retry_with_graph)
+    }
+    if (json?.detail) {
+      return new CricketApiError(json.detail, String(status))
+    }
   } catch {
     // not JSON
   }
 
-  if (status === 504) return 'Request timed out — the AI is busy. Try a simpler question or disable Live web search.'
-  if (status === 503) return 'Request timed out — the AI took too long. Try a shorter question or disable Live web search.'
-  if (status === 429) return 'Too many requests — please wait a moment and try again.'
-  return `Server error ${status}. Please try again.`
+  if (status === 504) return new CricketApiError('Request timed out — the AI is busy. Try a simpler question or disable Live web search.', 'TIMEOUT', true)
+  if (status === 503) return new CricketApiError('Request timed out — the AI took too long. Try a shorter question or disable Live web search.', 'TIMEOUT', true)
+  if (status === 429) return new CricketApiError('Too many requests — please wait a moment and try again.', 'RATE_LIMIT')
+  return new CricketApiError(`Server error ${status}. Please try again.`, String(status))
 }
 
 export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {
@@ -52,11 +70,10 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ use_graph: true, ...payload }),
       signal: controller.signal,
-    })
-  } catch (err: unknown) {
+    })  } catch (err: unknown) {
     clearTimeout(timeoutId)
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Request timed out (>58s). Try a shorter question or disable Live web search.')
+      throw new CricketApiError('Request timed out (>58s). Try a shorter question or disable Live web search.', 'TIMEOUT', true)
     }
     throw new Error('Failed to reach the server. Check your connection or try again.')
   }
@@ -64,7 +81,7 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(parseApiError(res.status, text))
+    throw parseApiError(res.status, text)
   }
 
   const json = await res.json()

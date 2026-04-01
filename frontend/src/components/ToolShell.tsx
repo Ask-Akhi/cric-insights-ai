@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AskIntent, AskMode } from '../lib/api'
+import { CricketApiError } from '../lib/api'
 
 interface Props {
   icon: string
@@ -85,13 +86,15 @@ function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }
   )
 }
 
-export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {  const [loading, setLoading]         = useState(false)
+export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {
+  const [loading, setLoading]         = useState(false)
   const [answer, setAnswer]           = useState<string | null>(null)
   const [intent, setIntent]           = useState<AskIntent>('general')
   const [players, setPlayers]         = useState<string[]>([])
   const [mode, setMode]               = useState<AskMode>('graph')
   const [dataSources, setDataSources] = useState<string[]>([])
   const [error, setError]             = useState<string | null>(null)
+  const [retryWithGraph, setRetryWithGraph] = useState(false)
   const [elapsed, setElapsed]         = useState<number>(0)
   const [copied, setCopied]           = useState(false)
   const [serverLatency, setServerLatency] = useState<number | null>(null)
@@ -100,7 +103,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setAnswer(null); setError(null); setElapsed(0); setLoading(true); setCopied(false)
-    setDataSources([]); setServerLatency(null); setRagCacheHit(false)
+    setDataSources([]); setServerLatency(null); setRagCacheHit(false); setRetryWithGraph(false)
     const start = Date.now()
     timerRef.current = setInterval(() => setElapsed(Date.now() - start), 100)
     try {
@@ -116,9 +119,13 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
         setServerLatency(result.latency_ms ?? null)
         setRagCacheHit(result.rag_cache_hit ?? false)
       }
-      onQuestionAsked?.()
-    } catch (err: unknown) {
-      setError(String(err))
+      onQuestionAsked?.()    } catch (err: unknown) {
+      if (err instanceof CricketApiError) {
+        setError(err.message)
+        setRetryWithGraph(err.retryWithGraph)
+      } else {
+        setError(String(err))
+      }
     } finally {
       setLoading(false)
       if (timerRef.current) clearInterval(timerRef.current)
@@ -209,8 +216,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                       <p className="text-slate-400 text-xs leading-relaxed">
                         Set <code className="text-orange-300">GEMINI_API_KEY</code> in Railway → Variables.
                       </p>
-                    </div>
-                  ) : error.includes('timed out') || error.includes('503') || error.includes('busy') ? (
+                    </div>                  ) : error.includes('timed out') || error.includes('503') || error.includes('busy') ? (
                     <div className="w-full rounded-xl p-4 space-y-3" style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)' }}>
                       <p className="text-yellow-400 font-semibold">⏱ AI is taking too long</p>
                       <p className="text-slate-400 text-xs leading-relaxed">
@@ -219,21 +225,33 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                       <ul className="text-slate-500 text-xs space-y-1 list-none">
                         <li>• Try a <strong className="text-slate-400">shorter, more specific question</strong></li>
                         <li>• Disable <strong className="text-slate-400">Live web search</strong> for faster answers</li>
-                        <li>• Or click Retry — the response may already be cached</li>
+                        {retryWithGraph && <li>• Or click <strong className="text-slate-400">Retry without web search</strong> — uses local cricket data only</li>}
                       </ul>
-                      <button
-                        className="btn-primary text-xs py-1.5 px-4 mt-1"
-                        onClick={() => { setError(null); document.querySelector('form button[type="submit"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) }}
-                      >
-                        🔄 Retry
-                      </button>
+                      <div className="flex gap-2 flex-wrap mt-1">
+                        <button
+                          className="btn-primary text-xs py-1.5 px-4"
+                          onClick={() => { setError(null); document.querySelector('form button[type="submit"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) }}
+                        >
+                          🔄 Retry
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <><span className="text-lg flex-shrink-0 text-red-400">❌</span><span className="text-red-400">{error}</span></>
                   )}
-                </div>
-              ) : answer ? (
-                <>                  {/* ── Result header with badges ── */}
+                </div>              ) : answer ? (
+                <>
+                  {/* ── Fallback banner — shown when web search wasn't available ── */}
+                  {mode === 'fallback' && (
+                    <div className="mb-4 rounded-lg px-3 py-2 flex items-center gap-2 text-xs"
+                      style={{ background: 'rgba(52,211,153,0.07)', border: '1px solid rgba(52,211,153,0.18)' }}>
+                      <span className="text-emerald-400">📚</span>
+                      <span className="text-slate-400">
+                        Web search was unavailable — answer uses <strong className="text-emerald-400">Cricsheet historical data</strong> + Gemini knowledge.
+                      </span>
+                    </div>
+                  )}
+                  {/* ── Result header with badges ── */}
                   <div className="flex items-center gap-2 mb-5 pb-4 flex-wrap" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                     <span className="text-[10px] font-bold tracking-widest uppercase text-orange-400">💡 AI Analysis</span>
                     {/* Intent badge */}
