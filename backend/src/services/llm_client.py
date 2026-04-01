@@ -8,7 +8,8 @@ from .llm_settings import LLM_PROVIDER, LLM_MODEL, GEMINI_API_KEY, OPENAI_API_KE
 # ─── Token / Prompt limits ─────────────────────────────────────────────────
 MAX_PROMPT_CHARS         = 12000  # ~3000 tokens — for non-grounded (LangGraph) path
 MAX_PROMPT_CHARS_GROUNDED = 6000  # grounded path: allow room for prediction tables
-MAX_RESPONSE_TOKENS = 8192        # full detailed answers, never truncated
+MAX_RESPONSE_TOKENS          = 8192  # non-grounded: full detailed answers
+MAX_RESPONSE_TOKENS_GROUNDED = 2048  # grounded: capped so web-search+gen stays < 40s
 CACHE_TTL_SECONDS = 1800          # 30 min cache — shorter so current-season data refreshes
 
 # ─── In-memory response cache ──────────────────────────────────────────────
@@ -150,7 +151,9 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     models_to_try = [m for m in all_models if m in grounding_models] if grounded else all_models
 
     config_kwargs: dict = {
-        "max_output_tokens": MAX_RESPONSE_TOKENS,
+        # Grounded calls: cap output tokens so web-search + generation finishes in < 35s.
+        # Non-grounded: full 8192 tokens for rich, complete answers.
+        "max_output_tokens": MAX_RESPONSE_TOKENS_GROUNDED if grounded else MAX_RESPONSE_TOKENS,
         "temperature": 0.3,
     }
     if grounded:

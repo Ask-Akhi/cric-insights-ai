@@ -87,9 +87,12 @@ def intent_router_node(state: CricketState) -> dict:
     pl_lower = prompt.lower()
     intent: str | None = None
 
-    if any(w in pl_lower for w in ["fantasy", "dream11", "captain", "vice captain", " xi ", "pick for"]):
+    if any(w in pl_lower for w in ["fantasy", "dream11", "captain", "vice captain", " xi ", "pick for",
+                                    "playing 11", "playing xi", "best pick", "dream 11"]):
         intent = "fantasy"
-    elif any(w in pl_lower for w in ["predict", "who will win", "who wins", "winner", "forecast"]):
+    elif any(w in pl_lower for w in ["predict", "who will win", "who wins", "winner", "forecast",
+                                      "player prediction", "bat first", "bowl first", "toss",
+                                      "bat and bowl", "provide player"]):
         intent = "predict"
     elif any(w in pl_lower for w in [" vs ", " versus ", "compare", "better than", "who is better",
                                       "head to head", "h2h", "difference between"]):

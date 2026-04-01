@@ -723,17 +723,25 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
     # We look up the most recent squad for each team from Cricsheet data.
     is_fantasy_or_predict = any(
         kw in prompt.lower()
-        for kw in ("fantasy", "predict", "top scorer", "top run", "expected",
-                    "who will score", "xi", "winner", "who wins")
+        for kw in (
+            "fantasy", "predict", "top scorer", "top run", "expected",
+            "who will score", "xi", "winner", "who wins",
+            "player prediction", "bat first", "bowl first", "toss",
+            "playing 11", "dream11", "pick for", "best pick",
+        )
     )
 
-    if not players and is_fantasy_or_predict and len(teams) >= 2:
-        log.info("Auto-detecting squad players for %s vs %s", teams[0], teams[1])
-        squad_a = _get_team_recent_players(teams[0], fmt=fmt, limit=11)
-        squad_b = _get_team_recent_players(teams[1], fmt=fmt, limit=11)
-        players = squad_a + squad_b
+    if not players and is_fantasy_or_predict and len(teams) >= 1:
+        if len(teams) >= 2:
+            log.info("Auto-detecting squad players for %s vs %s", teams[0], teams[1])
+            squad_a = _get_team_recent_players(teams[0], fmt=fmt, limit=11)
+            squad_b = _get_team_recent_players(teams[1], fmt=fmt, limit=11)
+            players = squad_a + squad_b
+        else:
+            log.info("Auto-detecting squad players for single team: %s", teams[0])
+            players = _get_team_recent_players(teams[0], fmt=fmt, limit=14)
         if players:
-            log.info("Auto-detected %d players from team rosters", len(players))
+            log.info("Auto-detected %d players from team roster(s)", len(players))
 
     # ── Player stats ──────────────────────────────────────────────────────────
     if players:
