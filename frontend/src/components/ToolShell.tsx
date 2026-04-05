@@ -81,7 +81,21 @@ function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }
   const cleanAnswer = isCached ? answer.replace(/^⚡ \*\(cached\)\*\n\n/, '') : answer
   return (
     <div className="prose-cricket">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanAnswer}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Wrap every table in a scroll div so the table keeps proper
+          // table layout (no display:block on the <table> itself) while
+          // still being horizontally scrollable on narrow screens.
+          table: ({ children }) => (
+            <div className="table-scroll-wrapper">
+              <table>{children}</table>
+            </div>
+          ),
+        }}
+      >
+        {cleanAnswer}
+      </ReactMarkdown>
     </div>
   )
 }

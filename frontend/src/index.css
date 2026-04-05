@@ -204,16 +204,21 @@
   .prose-cricket li { color: #cbd5e1; }
   .prose-cricket li::marker { color: #ff6b35; }
   .prose-cricket a  { color: #fb923c; text-decoration: none; }
-  .prose-cricket a:hover { text-decoration: underline; }
-  .prose-cricket code {
+  .prose-cricket a:hover { text-decoration: underline; }  .prose-cricket code {
     background: rgba(255,107,53,0.1); border: 1px solid rgba(255,107,53,0.2);
     border-radius: 5px; padding: 1px 6px;
     font-family: 'JetBrains Mono', monospace; font-size: 0.82em; color: #fb923c;
-  }  /* table wrapper — horizontal scroll on mobile */
+  }
+  /* table wrapper — wrap in scrollable div, keep table as table layout */
   .prose-cricket table {
     width: 100%; border-collapse: collapse;
-    display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    min-width: 480px; /* prevents columns collapsing on narrow viewports */
     border: 1px solid rgba(255,107,53,0.15); border-radius: 8px;
+  }
+  /* scroll container injected around every table by the wrapper div in AnswerBlock */
+  .prose-cricket .table-scroll-wrapper {
+    display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    border-radius: 8px; margin-bottom: 1em;
   }
   .prose-cricket thead { border-bottom: 1px solid rgba(255,107,53,0.3); }
   .prose-cricket th {
