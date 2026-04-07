@@ -235,12 +235,20 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                         time.sleep(8)
                         continue
                     break   # try next model
+                elif "503" in err or "UNAVAILABLE" in err or "overloaded" in err.lower() or "high demand" in err.lower():
+                    # Gemini capacity error — brief pause then try next model
+                    _logger.warning("Gemini %s 503/UNAVAILABLE — trying next model", model)
+                    if attempt == 0:
+                        time.sleep(3)
+                        continue
+                    break   # try next model
                 elif "404" in err or "NOT_FOUND" in err:
                     break   # model doesn't exist, skip
                 elif grounded and ("tools" in err.lower() or "search" in err.lower()):
                     # Search not supported on this model — fall back without grounding
                     return _gemini_response(prompt, context, grounded=False)
                 else:
+                    _logger.warning("Gemini %s unexpected error: %s", model, err[:200])
                     return f"❌ Gemini error: {err}"
 
     if grounded:
