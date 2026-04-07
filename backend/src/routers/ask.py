@@ -11,13 +11,14 @@ import time
 log = logging.getLogger(__name__)
 
 # Railway hard-kills connections at 60s — budget ladder:
-#   Tier 1 (grounded web search): 50s — Railway cold start (0-15s) + web search (10-25s) + LLM (5-15s)
-#   Tier 2 (LangGraph graph, no web): 14s — RAG is pre-built, graph responds in 8-15s
-#   Total worst-case: 50 + 14 = 64s — Railway's 60s limit means Tier2 only runs if Tier1 finishes early.
-#   In practice Tier1 succeeds in <50s and Tier2 is only hit on timeout/error.
+#   Tier 1 (grounded web search): 44s — web search (10-25s) + LLM generation (5-15s)
+#   Tier 2 (LangGraph, no web):   44s — used when Tier 1 times out OR returns an error immediately.
+#     When Tier 1 fails fast (error, not timeout), full 44s is available for Tier 2.
+#     When Tier 1 times out (44s), only ~14s is left before Railway kills at 60s — Tier 2 is skipped.
+#   Non-grounded path: 52s full budget for LangGraph.
 _ASK_TIMEOUT          = 52   # non-grounded / LangGraph path
-_ASK_TIMEOUT_GROUNDED = 50   # grounded Tier 1 — raised from 38s; gives headroom for cold Railway dyno
-_ASK_TIMEOUT_TIER2    = 14   # Tier 2: LangGraph (no web, uses pre-built RAG) — fast enough to fit in leftover budget
+_ASK_TIMEOUT_GROUNDED = 44   # grounded Tier 1
+_ASK_TIMEOUT_TIER2    = 44   # Tier 2 budget — full when Tier 1 fails fast, capped by remaining wall time
 
 router = APIRouter()
 
@@ -95,9 +96,10 @@ async def ask(req: AskRequest):
             )
             if answer and answer.strip() and not answer.startswith("❌"):
                 data_sources.append("Google Search")
-                log.info("Grounded Tier 1: OK")
+                log.info("Grounded Tier 1: OK (%.1fs)", time.monotonic() - _t0)
             else:
-                log.warning("Grounded Tier 1 empty/error — trying Tier 2")
+                log.warning("Grounded Tier 1 empty/error (%.1fs): %.120s — trying Tier 2",
+                            time.monotonic() - _t0, answer)
                 answer = ""
         except asyncio.TimeoutError:
             log.warning("Grounded Tier 1 timed out after %ds — trying Tier 2", _ASK_TIMEOUT_GROUNDED)
@@ -120,12 +122,17 @@ async def ask(req: AskRequest):
 
         # Tier 2: LangGraph (no web search, uses pre-built RAG — 8-15s)
         if not answer:
-            log.info("Grounded Tier 2: LangGraph fallback (no web search, pre-built RAG)")
+            # Use the smaller of _ASK_TIMEOUT_TIER2 and whatever wall-time budget remains
+            # before Railway's 60s kill. Leave 3s margin.
+            elapsed_so_far = time.monotonic() - _t0
+            tier2_budget = min(_ASK_TIMEOUT_TIER2, max(5.0, 57.0 - elapsed_so_far))
+            log.info("Grounded Tier 2: LangGraph fallback (%.1fs elapsed, %.0fs budget)",
+                     elapsed_so_far, tier2_budget)
             try:
                 from ..services.cricket_graph import run_graph
                 tier2_result = await asyncio.wait_for(
                     run_graph(req.prompt, enriched),
-                    timeout=_ASK_TIMEOUT_TIER2,
+                    timeout=tier2_budget,
                 )
                 answer = tier2_result.get("answer", "")
                 if answer and answer.strip() and not answer.startswith("❌"):
@@ -143,7 +150,7 @@ async def ask(req: AskRequest):
                     log.warning("Grounded Tier 2 empty/error")
                     answer = ""
             except asyncio.TimeoutError:
-                log.warning("Grounded Tier 2 timed out after %ds", _ASK_TIMEOUT_TIER2)
+                log.warning("Grounded Tier 2 timed out after %.0fs", tier2_budget)
                 return JSONResponse(
                     status_code=503,
                     content={
