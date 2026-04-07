@@ -69,12 +69,11 @@ export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Pr
   const [chartData, setChartData] = useState<PlayerStats | null>(null)
   const [chartLoading, setChartLoading] = useState(false)
   const [chartPlayer, setChartPlayer] = useState<string | null>(null)
-
   // ── Live player detection via backend API (debounced, no hardcoded list) ──
-  const debouncedQ = useDebounced(question, 400)
+  const debouncedQ = useDebounced(question, 800)
   const lastDetectRef = useRef<string>('')
   useEffect(() => {
-    if (debouncedQ.length < 6 || debouncedQ === lastDetectRef.current) return
+    if (debouncedQ.length < 10 || debouncedQ === lastDetectRef.current) return
     lastDetectRef.current = debouncedQ
     // Use the lightweight /detect endpoint — aliases scan, no Cricsheet I/O
     callPlayerDetect(apiBase, debouncedQ)

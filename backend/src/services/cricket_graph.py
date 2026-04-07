@@ -48,13 +48,14 @@ else:
     CricketState = dict  # type: ignore
 
 
-def _llm(temperature: float = 0.3) -> Any:
+def _llm(temperature: float = 0.3, prompt: str = "") -> Any:
     from langchain_google_genai import ChatGoogleGenerativeAI
+    from .llm_client import _max_tokens_for
     return ChatGoogleGenerativeAI(
         model=LLM_MODEL,
         google_api_key=GEMINI_API_KEY,
         temperature=temperature,
-        max_output_tokens=8192,  # match llm_client — full tables + analysis
+        max_output_tokens=_max_tokens_for(prompt) if prompt else 4096,
     )
 
 
@@ -105,7 +106,7 @@ def intent_router_node(state: CricketState) -> dict:
     # ── LLM classifier only for ambiguous cases (no keyword matched) ──────────
     if intent is None:
         try:
-            resp = _llm(0.0).invoke([
+            resp = _llm(0.0, "classify").invoke([
                 SystemMessage(content=_INTENT_SYSTEM),
                 HumanMessage(content=prompt),
             ])
@@ -134,36 +135,15 @@ def _cricsheet(state: CricketState) -> str:
 
 
 # ── Node 3: Stats ─────────────────────────────────────────────────────────────
-_STATS_SYSTEM = f"""You are a senior cricket statistician and analyst. Today is {TODAY}.
-
-OUTPUT FORMAT — follow exactly:
-## [Player/Topic] — Stats Summary
-One-sentence headline with the key number.
-
-### Career Overview
-Markdown table with the most relevant stats (columns vary by question):
-| Metric | Value | Context |
-|--------|-------|---------|
-| ... | ... | ... |
-
-### Key Insights
-- 2–4 bullet points: what the numbers actually mean, notable trends, comparisons
-- Always cite the source: "per Cricsheet data" or "per Gemini training knowledge"
-
-### Verdict
-One-sentence summary: what these stats tell us about this player right now.
-
-RULES:
-- CRICSHEET DATA = ground truth. Use it as primary source and cite it explicitly.
-- Use real numbers, not vague phrases. Prefer "average of 48.3 in 87 T20Is" over "plays well".
-- Complete every table — header + separator (|---|) + all data rows. Never truncate mid-table.
-- For current IPL 2026 season, note if data is from Cricsheet or general knowledge."""
+_STATS_SYSTEM = f"""Senior cricket statistician. Today is {TODAY}.
+Format: ## Headline → Stats table (| Metric | Value | Context |) → 2-4 Key Insights bullets → Verdict sentence.
+Rules: Cricsheet data = ground truth. Real numbers only. Complete every table (header+separator+data). Cite sources."""
 
 
 def stats_node(state: CricketState) -> dict:
     data_block = _cricsheet(state)
     try:
-        resp = _llm(0.2).invoke([
+        resp = _llm(0.2, state["prompt"]).invoke([
             SystemMessage(content=_STATS_SYSTEM),
             HumanMessage(content=(
                 f"Stats question: {state['prompt']}\n\n{data_block}"
@@ -176,36 +156,15 @@ def stats_node(state: CricketState) -> dict:
 
 
 # ── Node 4: Compare ───────────────────────────────────────────────────────────
-_COMPARE_SYSTEM = f"""You are a senior cricket analyst specialising in player comparisons. Today is {TODAY}.
-
-OUTPUT FORMAT — follow exactly:
-## [Player A] vs [Player B] — Head-to-Head
-
-### Side-by-Side Stats
-| Metric | [Player A] | [Player B] | Edge |
-|--------|-----------|-----------|------|
-| ... | ... | ... | ✅ A / ✅ B |
-
-Include 5–8 rows covering the most relevant metrics for this comparison (batting avg, SR, wickets, economy, etc).
-
-### Key Differences
-- 3–4 bullet points on the most important contrasts
-- Always cite source: "per Cricsheet data" or "per Gemini training knowledge"
-
-### Verdict
-**[Player X]** wins this comparison because [one clear reason with a stat].
-
-RULES:
-- CRICSHEET DATA = ground truth. Always prefer it over training knowledge.
-- Real numbers only — no vague phrases.
-- Complete every table — never truncate.
-- For IPL 2026 context, note if using Cricsheet or general knowledge."""
+_COMPARE_SYSTEM = f"""Senior cricket analyst — player comparisons. Today is {TODAY}.
+Format: ## A vs B → Side-by-side table (| Metric | A | B | Edge |, 5-8 rows) → Key Differences bullets → Verdict with stat.
+Rules: Cricsheet data = ground truth. Real numbers only. Complete every table. Cite sources."""
 
 
 def compare_node(state: CricketState) -> dict:
     data_block = _cricsheet(state)
     try:
-        resp = _llm(0.3).invoke([
+        resp = _llm(0.3, state["prompt"]).invoke([
             SystemMessage(content=_COMPARE_SYSTEM),
             HumanMessage(content=(
                 f"Comparison question: {state['prompt']}\n\n{data_block}"
@@ -218,39 +177,15 @@ def compare_node(state: CricketState) -> dict:
 
 
 # ── Node 5: Fantasy ───────────────────────────────────────────────────────────
-_FANTASY_SYSTEM = f"""You are an expert fantasy cricket analyst (Dream11 / fantasy XI). Today is {TODAY}.
-
-OUTPUT FORMAT — follow exactly:
-## Fantasy XI Picks — [Match/Context]
-
-### Recommended XI
-| Player | Team | Role | Exp. Runs | Exp. Wickets | Est. Pts | Pick Reason |
-|--------|------|------|-----------|--------------|----------|-------------|
-| ... | ... | BAT/BWL/AR/WK | ... | ... | ... | ... |
-
-List all 11 picks with estimated fantasy points based on recent form and match-up.
-
-### Captain & Vice-Captain
-- **Captain (2×):** [Name] — [one-line reason with stat]
-- **Vice-Captain (1.5×):** [Name] — [one-line reason with stat]
-
-### Differential Pick
-**[Name]** — [low-ownership pick with clear stat-backed reason]
-
-### Key Form Notes
-- 2–3 bullet points on current form, pitch/venue advantage, or match-up edge
-- Cite: "per Cricsheet data" or "per general knowledge"
-
-RULES:
-- Use Cricsheet expected-runs/wickets if provided in the data block.
-- Real numbers only. Complete every table.
-- Always pick a Captain and VC — never say "too hard to call"."""
+_FANTASY_SYSTEM = f"""Expert fantasy cricket analyst (Dream11). Today is {TODAY}.
+Format: ## Fantasy XI → Ranked table [Player|Team|Role|Exp Runs|Exp Wkts|Est Pts|Reason] (11 picks) → Captain (2×) & VC (1.5×) → Differential pick → 2-3 form notes.
+Rules: Use Cricsheet expected numbers if provided. Real numbers only. Complete every table. Always pick C & VC."""
 
 
 def fantasy_node(state: CricketState) -> dict:
     data_block = _cricsheet(state)
     try:
-        resp = _llm(0.4).invoke([
+        resp = _llm(0.4, state["prompt"]).invoke([
             SystemMessage(content=_FANTASY_SYSTEM),
             HumanMessage(content=(
                 f"Fantasy question: {state['prompt']}\n\n{data_block}"
@@ -263,50 +198,15 @@ def fantasy_node(state: CricketState) -> dict:
 
 
 # ── Node 6: Predict ───────────────────────────────────────────────────────────
-_PREDICT_SYSTEM = f"""You are an expert cricket prediction analyst. Today is {TODAY}.
-
-OUTPUT FORMAT — follow exactly:
-## Match Prediction — [Team A] vs [Team B]
-
-### Winner Prediction
-**🏆 [Team Name]** — Confidence: **XX%**
-One sentence explaining the primary reason.
-
-### Key Deciding Factors
-1. **[Factor]** — [stat-backed explanation]
-2. **[Factor]** — [stat-backed explanation]
-3. **[Factor]** — [stat-backed explanation]
-
-### Player Predictions
-If a Player Predictions Table is provided in the CRICSHEET DATA, reproduce it COMPLETELY —
-every row, every column. Do NOT omit any rows or show only the header.
-If no pre-built table is provided, create one with the 6–8 most impactful players:
-
-| Player | Team | Role | Exp. Runs | Exp. Wickets | Est. Fantasy Pts | Impact |
-|--------|------|------|-----------|--------------|-----------------|--------|
-| ... | ... | BAT/BWL/AR | ... | ... | ... | High/Med/Low |
-
-### Captain & Vice-Captain Picks
-If Captain/VC recommendations are in the data, include them. Otherwise pick the top 2.
-
-### Risk Factor
-⚠️ [The one thing most likely to overturn this prediction]
-
-### Source Note
-Brief note on whether predictions are based on Cricsheet ball-by-ball data, IPL 2026 form, or general knowledge.
-
-RULES:
-- ALWAYS pick a winner — never say "it's 50/50" or "too hard to call".
-- Use confidence % between 52% and 75% (avoid extremes unless data is very clear).
-- Use Cricsheet expected-runs/wickets data if provided — these are COMPUTED from real ball-by-ball data.
-- Complete every table — header + separator + ALL data rows. NEVER output a table header without data rows.
-- Cite sources explicitly."""
+_PREDICT_SYSTEM = f"""Expert cricket prediction analyst. Today is {TODAY}.
+Format: ## Match Prediction → Winner + confidence % (52-75%) → 3 stat-backed factors → COMPLETE player predictions table [Player|Team|Role|Exp Runs|Exp Wkts|Est Pts|Impact] → Captain/VC picks → Risk factor → Source note.
+Rules: ALWAYS pick a winner. Use Cricsheet expected numbers if provided. Complete every table (header+separator+ALL rows). Cite sources."""
 
 
 def predict_node(state: CricketState) -> dict:
     data_block = _cricsheet(state)
     try:
-        resp = _llm(0.4).invoke([
+        resp = _llm(0.4, state["prompt"]).invoke([
             SystemMessage(content=_PREDICT_SYSTEM),
             HumanMessage(content=(
                 f"Prediction question: {state['prompt']}\n\n{data_block}"
@@ -319,25 +219,15 @@ def predict_node(state: CricketState) -> dict:
 
 
 # ── Node 7: General ───────────────────────────────────────────────────────────
-_GENERAL_SYSTEM = f"""You are a sharp cricket analyst and journalist. Today is {TODAY}.
-
-Match the depth and format to the question:
-- Simple factual question → 2–3 sentences with the key fact and one supporting stat
-- Complex question → use markdown headers (##), bullet points, and tables as needed
-- History/rules → concise prose with specific examples
-
-RULES:
-- Start with the direct answer in the first sentence.
-- Back every claim with a specific number or verifiable fact.
-- If Cricsheet data is provided, it is real ball-by-ball data — use it and cite it as "per Cricsheet data".
-- Never use vague phrases like "plays well" — always prefer concrete stats.
-- For IPL 2026 context, note if using Cricsheet or general knowledge."""
+_GENERAL_SYSTEM = f"""Sharp cricket analyst. Today is {TODAY}.
+Match depth to question: simple → 2-3 sentences; complex → headers, bullets, tables.
+Rules: Direct answer first. Back claims with numbers. Cricsheet data = ground truth. Cite sources. No vague phrases."""
 
 
 def general_node(state: CricketState) -> dict:
     data_block = _cricsheet(state)
     try:
-        resp = _llm(0.3).invoke([
+        resp = _llm(0.3, state["prompt"]).invoke([
             SystemMessage(content=_GENERAL_SYSTEM),
             HumanMessage(content=(
                 f"Question: {state['prompt']}\n\n"
@@ -455,7 +345,7 @@ async def run_graph(prompt: str, context: Dict[str, Any] | None = None) -> Dict[
         data_block = ""
         if enriched.get("cricsheet_data"):
             data_block = f"--- CRICSHEET BALL-BY-BALL DATA ---\n{enriched['cricsheet_data']}\n--- END ---\n\n"
-        resp = _llm(0.3).invoke([
+        resp = _llm(0.3, prompt).invoke([
             SystemMessage(content=_GENERAL_SYSTEM),
             HumanMessage(content=f"Question: {prompt}\n\n{data_block}"),
         ])

@@ -15,6 +15,25 @@ CACHE_TTL_SECONDS = 1800          # 30 min cache — shorter so current-season d
 # ─── In-memory response cache ──────────────────────────────────────────────
 _cache: Dict[str, Dict] = {}   # key → {answer, ts} — cleared on restart
 
+# ─── Dynamic max_output_tokens based on query complexity ───────────────────
+def _max_tokens_for(prompt: str) -> int:
+    """Simple queries → 1024, medium → 2048, complex → 4096, huge → 8192."""
+    p = prompt.lower()
+    # Complex: multiple comparisons, fantasy XI, full predictions with tables
+    if any(w in p for w in ["fantasy", "dream11", "playing xi", "playing 11",
+                             "predict", "head to head", "compare",
+                             "captain", "vice captain"]):
+        return 4096
+    # Medium: stats questions, single-player analysis
+    if any(w in p for w in ["average", "strike rate", "economy", "career",
+                             "record", "stats", "ranking", "centuries",
+                             "wickets", "top scorer", "best"]):
+        return 2048
+    # Simple: factual, yes/no, short answers
+    if len(p) < 60:
+        return 1024
+    return 2048
+
 # ─── Fallback models (verified available, best-first order) ───────────────
 GEMINI_FALLBACK_MODELS = [
     "gemini-2.5-flash",         # largest context + best current knowledge
@@ -152,8 +171,8 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
 
     config_kwargs: dict = {
         # Grounded calls: cap output tokens so web-search + generation finishes in < 35s.
-        # Non-grounded: full 8192 tokens for rich, complete answers.
-        "max_output_tokens": MAX_RESPONSE_TOKENS_GROUNDED if grounded else MAX_RESPONSE_TOKENS,
+        # Non-grounded: dynamic based on query complexity (saves tokens on simple Qs).
+        "max_output_tokens": MAX_RESPONSE_TOKENS_GROUNDED if grounded else _max_tokens_for(prompt),
         "temperature": 0.3,
     }
     if grounded:
@@ -283,33 +302,19 @@ def _build_prompt(prompt: str, context: Dict[str, Any], grounded: bool = False) 
     max_chars = MAX_PROMPT_CHARS_GROUNDED if grounded else MAX_PROMPT_CHARS
 
     system = (
-        f"You are an expert cricket analyst AI — the equivalent of a senior ESPNcricinfo journalist combined with a data scientist. Today's date is {today}.\n\n"
-        "=== CORE RULES ===\n"
-        "1. COMPLETE answers only — never cut off mid-sentence, mid-table, or mid-list.\n"
-        "2. TABLES: always include the header row, the separator row (|---|---|), AND all data rows. Never emit a table header without its data rows.\n"
-        "3. STRUCTURE every response with markdown headers (##), bullet points, and tables where relevant.\n"
-        "4. CRICSHEET DATA = GROUND TRUTH — if provided below, always cite it explicitly and use it as primary source.\n"
-        "5. VENUE/GROUND RECORDS — if Cricsheet venue data is provided, use it. If not provided, say 'per web search' and use your grounded knowledge.\n"
-        "6. FANTASY PREDICTION DATA — if FANTASY PREDICTION blocks are provided below, use those exact expected-runs/wickets numbers in your table. Do NOT say 'data unavailable'.\n"
-        "7. CITE your sources — say 'per Cricsheet data' or 'per web search' so users know what's verified.\n"
-        "8. CURRENT SEASON — include IPL 2026 context when discussing players.\n"
-        "9. NON-CRICKET REDIRECT — if the question is not about cricket, respond: '🏏 I am a cricket specialist. Try asking about a player, match, or fantasy team.'\n"
-        "10. NUMBERS over vague claims — always prefer 'average of 48.3 in 87 matches' over 'plays well consistently'.\n"
-        "11. NO BIOGRAPHIES — NEVER write paragraphs of biographical text about a player (birthdate, early life, clubs played for, etc). "
-        "For each player use ONLY one compact table row. Biographical text from web search MUST NOT appear in your output.\n"
-        "12. END WITH VALUE — always close with a summary, recommendation, or actionable insight.\n\n"
-        "=== OUTPUT QUALITY ===\n"
-        "- For STATS questions: lead with a stat table, then context, then summary.\n"
-        "- For COMPARE questions: use a side-by-side table with an 'Edge' column, then give a definitive verdict.\n"
-        "- For FANTASY questions: give a ranked table with columns [Player | Team | Role | Expected Runs | Expected Wickets | Est. Fantasy Pts | Pick Reason], then Captain/VC picks.\n"
-        "- For PREDICT questions: give winner + confidence %, then 3 key deciding factors, then a COMPLETE player predictions table (header + separator + ALL data rows — never just a header). Use the Cricsheet prediction table if provided.\n"
-        "- For GENERAL questions: match the depth to the question — concise for simple, structured for complex.\n\n"
-        "=== CRITICAL TABLE FORMAT ===\n"
-        "Every markdown table MUST have ALL three parts:\n"
-        "1. Header row: | Col1 | Col2 | Col3 |\n"
-        "2. Separator: |---|---|---|\n"
-        "3. Data rows: | value | value | value |\n"
-        "NEVER emit a header row without the separator and at least one data row.\n\n"
+        f"You are an expert cricket analyst AI. Today is {today}.\n\n"
+        "RULES:\n"
+        "1. COMPLETE answers only — never cut off mid-sentence or mid-table.\n"
+        "2. TABLES: always include header + separator (|---|) + ALL data rows.\n"
+        "3. Use markdown headers (##), bullets, and tables. Cite sources ('per Cricsheet data' or 'per web search').\n"
+        "4. CRICSHEET DATA = ground truth — use it as primary source when provided.\n"
+        "5. Numbers over vague claims. No biographies.\n"
+        "6. STATS: lead with stat table → context → summary.\n"
+        "7. COMPARE: side-by-side table with Edge column → verdict.\n"
+        "8. FANTASY: ranked table [Player|Team|Role|Exp Runs|Exp Wkts|Est Pts|Reason] → Captain/VC picks.\n"
+        "9. PREDICT: winner + confidence % → 3 factors → COMPLETE player table → risk factor.\n"
+        "10. Non-cricket → reply: '🏏 I am a cricket specialist.'\n"
+        "11. End with a summary or actionable insight.\n\n"
     )
 
     # Cricsheet RAG data — inject first so LLM treats it as ground truth

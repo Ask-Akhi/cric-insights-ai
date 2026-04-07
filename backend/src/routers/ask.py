@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from ..services.llm_client import get_llm_response_grounded
 from ..services.rag_service import build_rag_context, detect_players_in_prompt
+from ..services import llm_cache, token_tracker
 import logging
 import asyncio
 import time
@@ -65,6 +66,16 @@ def _has_rag_data(enriched: Dict[str, Any]) -> bool:
 async def ask(req: AskRequest):
     _t0 = time.monotonic()
     ctx = req.context or {}
+    fmt = ctx.get("format", "")
+
+    # ── Ask-level cache — biggest single cost saver ───────────────────────
+    cached = llm_cache.get(req.prompt, req.grounded, fmt)
+    if cached:
+        token_tracker.record(cached=True, intent=cached.get("intent", "general"))
+        cached["answer"] = f"⚡ *(cached)*\n\n{cached['answer']}"
+        cached["latency_ms"] = int((time.monotonic() - _t0) * 1000)
+        log.info("ask-cache HIT — returning in %dms", cached["latency_ms"])
+        return AskResponse(**cached)
 
     # Always run RAG first
     enriched = build_rag_context(req.prompt, ctx)
@@ -173,7 +184,7 @@ async def ask(req: AskRequest):
         # mode="fallback" when web search didn't contribute (Tier 2 was used)
         response_mode = "grounded" if "Google Search" in data_sources else "fallback"
 
-        return AskResponse(
+        resp_dict = dict(
             answer=answer,
             intent="general",
             players=players,
@@ -182,6 +193,14 @@ async def ask(req: AskRequest):
             latency_ms=int((time.monotonic() - _t0) * 1000),
             rag_cache_hit=rag_cache_hit,
         )
+        # Cache successful responses (skip fallback text)
+        if answer and answer != _FALLBACK:
+            llm_cache.put(req.prompt, req.grounded, fmt, resp_dict)
+        token_tracker.record(
+            prompt=req.prompt, response=answer,
+            intent="general", grounded=True,
+        )
+        return AskResponse(**resp_dict)
 
     # LangGraph multi-step pipeline (non-grounded)
     try:
@@ -207,7 +226,7 @@ async def ask(req: AskRequest):
         data_sources.append("Cricsheet RAG")
     data_sources.append("LangGraph")
 
-    return AskResponse(
+    resp_dict = dict(
         answer=answer,
         intent=result.get("intent", "general"),
         players=result.get("players", []),
@@ -216,3 +235,11 @@ async def ask(req: AskRequest):
         latency_ms=int((time.monotonic() - _t0) * 1000),
         rag_cache_hit=rag_cache_hit,
     )
+    # Cache successful responses
+    if answer and answer != _FALLBACK:
+        llm_cache.put(req.prompt, req.grounded, fmt, resp_dict)
+    token_tracker.record(
+        prompt=req.prompt, response=answer,
+        intent=result.get("intent", "general"), grounded=False,
+    )
+    return AskResponse(**resp_dict)

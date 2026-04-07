@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query, HTTPException
 from starlette.responses import JSONResponse
 
 from ..providers.cricsheet_provider import CricsheetProvider, PARQUET_DIR, RAW_DIR
+from ..services import token_tracker, llm_cache
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -130,3 +131,34 @@ def trigger_refresh(key: Optional[str] = Query(default=None)) -> dict:
         "queued":  True,
         "message": "Cricsheet refresh started in background. Poll /api/admin/data-status?key=... to track progress.",
     }
+
+
+# ── Token usage & cache monitoring ────────────────────────────────────────────
+
+@router.get("/token-usage")
+def token_usage(key: Optional[str] = Query(default=None), day: Optional[str] = Query(default=None)) -> dict:
+    """Return estimated token usage & cost for a given day (default: today)."""
+    _require_key(key)
+    return token_tracker.get_usage(day)
+
+
+@router.get("/token-usage/all")
+def token_usage_all(key: Optional[str] = Query(default=None)) -> dict:
+    """Return token usage summary across all tracked days."""
+    _require_key(key)
+    return token_tracker.get_all_days()
+
+
+@router.get("/cache-stats")
+def cache_stats(key: Optional[str] = Query(default=None)) -> dict:
+    """Return ask-level response cache diagnostics."""
+    _require_key(key)
+    return llm_cache.stats()
+
+
+@router.post("/cache-flush")
+def cache_flush(key: Optional[str] = Query(default=None)) -> dict:
+    """Flush the ask-level response cache."""
+    _require_key(key)
+    n = llm_cache.invalidate_all()
+    return {"flushed": n, "message": f"Evicted {n} cached responses."}
