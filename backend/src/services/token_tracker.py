@@ -1,4 +1,3 @@
-# filepath: backend/src/services/token_tracker.py
 """
 Lightweight daily token-usage tracker with cost estimation.
 

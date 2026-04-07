@@ -1,4 +1,3 @@
-# filepath: backend/src/services/llm_cache.py
 """
 Centralised response cache for the Ask pipeline.
 
