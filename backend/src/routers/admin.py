@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import logging
 import threading
@@ -162,3 +162,29 @@ def cache_flush(key: Optional[str] = Query(default=None)) -> dict:
     _require_key(key)
     n = llm_cache.invalidate_all()
     return {"flushed": n, "message": f"Evicted {n} cached responses."}
+
+
+# ── MCP tools introspection ──────────────────────────────────────────────────
+
+@router.get("/mcp-tools")
+def mcp_tools(key: Optional[str] = Query(default=None)) -> dict:
+    """List all registered MCP tools and their servers. Requires ?key=ADMIN_KEY."""
+    _require_key(key)
+    try:
+        from ..mcp.client import list_all_tools
+        tools = list_all_tools()
+        return {
+            "count": len(tools),
+            "tools": [
+                {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "server": t.get("_server", ""),
+                    "priority": t.get("_priority", 0),
+                    "inputSchema": t.get("inputSchema", {}),
+                }
+                for t in tools
+            ],
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)

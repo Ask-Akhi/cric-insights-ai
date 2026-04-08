@@ -1,0 +1,135 @@
+"""
+Context Assembler — merges MCP tool results into a single prompt context block.
+
+Token-aware: uses count_tokens() to stay within budget, truncating
+lowest-priority results first.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Sequence
+
+from ..core.config import settings
+from ..core.result import ToolResult
+from ..core.token_utils import count_tokens, truncate_to_budget
+
+log = logging.getLogger("mcp.context_assembler")
+
+# Source priority — lower number = higher priority (kept first when truncating)
+_SOURCE_PRIORITY: dict[str, int] = {
+    "cricsheet": 1,
+    "live": 2,
+    "search": 5,
+}
+
+
+def assemble(
+    results: Sequence[ToolResult],
+    max_tokens: int | None = None,
+) -> str:
+    """
+    Merge tool results into a single context string, respecting token budget.
+
+    Strategy:
+      1. Sort by source priority (cheapest/most-reliable first)
+      2. Add results one by one until budget is reached
+      3. Truncate the last added result if it would exceed the budget
+      4. Wrap in clear section delimiters so the LLM knows what came from where
+    """
+    budget = max_tokens or settings.mcp_max_context_tokens
+
+    # Filter out failed / empty results
+    good = [r for r in results if r.ok]
+    if not good:
+        return ""
+
+    # Sort by source priority (stable sort preserves insertion order within same priority)
+    good.sort(key=lambda r: _SOURCE_PRIORITY.get(r.source, 99))
+
+    sections: list[str] = []
+    used_tokens = 0
+
+    for r in good:
+        section = _format_section(r)
+        section_tokens = count_tokens(section)
+
+        if used_tokens + section_tokens <= budget:
+            sections.append(section)
+            used_tokens += section_tokens
+        else:
+            # Partial fit — truncate this section to fill remaining budget
+            remaining = budget - used_tokens
+            if remaining > 100:  # only worth adding if > 100 tokens remain
+                truncated = truncate_to_budget(section, remaining)
+                sections.append(truncated)
+                used_tokens += count_tokens(truncated)
+            break  # budget exhausted
+
+    if not sections:
+        return ""
+
+    assembled = "\n\n".join(sections)
+    log.info(
+        "Assembled %d sections, ~%d tokens (budget %d)",
+        len(sections), used_tokens, budget,
+    )
+    return assembled
+
+
+def _format_section(r: ToolResult) -> str:
+    """Format a single tool result as a delimited section."""
+    source_label = {
+        "cricsheet": "CRICSHEET BALL-BY-BALL DATA",
+        "live": "LIVE/RECENT MATCH DATA",
+        "search": "WEB SEARCH RESULTS",
+    }.get(r.source, r.source.upper())
+
+    return (
+        f"--- {source_label} (tool: {r.tool_name}) ---\n"
+        f"{r.data}\n"
+        f"--- END {source_label} ---"
+    )
+
+
+def quality_gate(results: Sequence[ToolResult]) -> dict:
+    """
+    Check whether tool results have enough substance for a good LLM answer.
+
+    Returns:
+        {
+            "pass": bool,
+            "total_tokens": int,
+            "good_count": int,
+            "sources": list[str],
+            "reason": str,   # only set when pass=False
+        }
+    """
+    good = [r for r in results if r.ok]
+    total_tokens = sum(r.tokens_estimate for r in good)
+    sources = list({r.source for r in good})
+
+    if not good:
+        return {
+            "pass": False,
+            "total_tokens": 0,
+            "good_count": 0,
+            "sources": [],
+            "reason": "No tools returned useful data",
+        }
+
+    # Very thin results — less than 50 tokens total
+    if total_tokens < 50:
+        return {
+            "pass": False,
+            "total_tokens": total_tokens,
+            "good_count": len(good),
+            "sources": sources,
+            "reason": f"Tool results too thin ({total_tokens} tokens)",
+        }
+
+    return {
+        "pass": True,
+        "total_tokens": total_tokens,
+        "good_count": len(good),
+        "sources": sources,
+    }
