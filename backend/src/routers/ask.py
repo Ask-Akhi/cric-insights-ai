@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from ..services.llm_client import get_llm_response_grounded
 from ..services.rag_service import build_rag_context, detect_players_in_prompt
 from ..services import llm_cache, token_tracker
+from ..core.config import settings
 import logging
 import asyncio
 import time
@@ -77,6 +78,43 @@ async def ask(req: AskRequest):
         log.info("ask-cache HIT — returning in %dms", cached["latency_ms"])
         return AskResponse(**cached)
 
+    # ── MCP path (primary) ──────────────────────────────────────────────
+    if settings.mcp_enabled:
+        try:
+            from ..mcp.orchestrator import run as mcp_run
+
+            mcp_result = await asyncio.wait_for(
+                mcp_run(req.prompt, ctx),
+                timeout=settings.tier2_budget_s,
+            )
+            if mcp_result.answer and not mcp_result.answer.startswith("❌"):
+                resp_dict = dict(
+                    answer=mcp_result.answer,
+                    intent=mcp_result.intent,
+                    players=mcp_result.players,
+                    mode=mcp_result.mode,
+                    data_sources=mcp_result.data_sources,
+                    latency_ms=mcp_result.latency_ms,
+                    rag_cache_hit=False,
+                )
+                llm_cache.put(req.prompt, req.grounded, fmt, resp_dict)
+                token_tracker.record(
+                    prompt=req.prompt, response=mcp_result.answer,
+                    intent=mcp_result.intent, grounded=req.grounded,
+                )
+                log.info(
+                    "MCP path OK in %dms — tools=%s, intent=%s",
+                    mcp_result.latency_ms, mcp_result.tools_used, mcp_result.intent,
+                )
+                return AskResponse(**resp_dict)
+            else:
+                log.info("MCP path returned empty/error — falling through to legacy path")
+        except asyncio.TimeoutError:
+            log.warning("MCP path timed out after %ds — falling through to legacy path", settings.tier2_budget_s)
+        except Exception as e:
+            log.warning("MCP path failed: %s — falling through to legacy path", e)
+
+    # ── Legacy path (RAG → grounded → LangGraph) ─────────────────────────
     # Always run RAG first
     enriched = build_rag_context(req.prompt, ctx)
     players = detect_players_in_prompt(req.prompt)
