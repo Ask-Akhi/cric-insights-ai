@@ -159,8 +159,10 @@ def _extract_format(query: str) -> str:
         fmt = m.group(1).upper()
         if fmt in ("T20", "T20I"):
             return "T20"
+        if fmt in ("IPL", "BBL", "CPL", "PSL", "WPL"):
+            return "T20"  # franchise leagues are T20
         return fmt
-    # IPL heuristic
+    # IPL heuristic (in case regex misses it)
     if re.search(r"\bipl\b", query, re.I):
         return "T20"
     return ""
@@ -172,12 +174,19 @@ def _extract_teams(query: str) -> list[str]:
     q_lower = query.lower()
     # Sort by length descending to match longer aliases first
     for alias in sorted(TEAM_ALIASES.keys(), key=len, reverse=True):
-        if alias in q_lower:
-            canonical = TEAM_ALIASES[alias]
-            if canonical not in found:
-                found.append(canonical)
-            if len(found) >= 2:
-                break
+        # Short aliases (2-3 chars like "dc", "gt", "wi", "sa") need word-boundary
+        # matching to avoid false positives ("wi" inside "win", "sa" inside "says")
+        if len(alias) <= 3:
+            if not re.search(r'\b' + re.escape(alias) + r'\b', q_lower):
+                continue
+        else:
+            if alias not in q_lower:
+                continue
+        canonical = TEAM_ALIASES[alias]
+        if canonical not in found:
+            found.append(canonical)
+        if len(found) >= 2:
+            break
     return found
 
 
@@ -192,12 +201,14 @@ def _extract_players(query: str) -> list[str]:
     q_lower = query.lower()
     # Sort by length descending to match longer aliases first
     for alias in sorted(PLAYER_ALIASES.keys(), key=len, reverse=True):
-        if alias in q_lower:
-            canonical = PLAYER_ALIASES[alias]
-            if canonical not in found:
-                found.append(canonical)
-            if len(found) >= 4:
-                break
+        # Word-boundary match to avoid false positives
+        if not re.search(r'\b' + re.escape(alias) + r'\b', q_lower):
+            continue
+        canonical = PLAYER_ALIASES[alias]
+        if canonical not in found:
+            found.append(canonical)
+        if len(found) >= 4:
+            break
     return found
 
 
