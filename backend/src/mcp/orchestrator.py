@@ -378,9 +378,14 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
     Full MCP pipeline:
       regex intent → tool selection → parallel execution → context assembly
       → quality gate → single LLM call
+
+    Tracks elapsed wall time so the LLM call never exceeds the remaining
+    budget (Railway hard-kills at 60s).
     """
     t0 = time.monotonic()
     context = context or {}
+    # Total budget for the MCP pipeline (ask.py wraps us in this timeout too)
+    total_budget = settings.tier2_budget_s  # 44s
 
     # Step 1: Intent classification (regex — 0 tokens)
     intent = classify_intent(query)
@@ -395,36 +400,54 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
         word_count = len(query.split())
         if word_count >= settings.mcp_llm_fallback_min_words and intent == "general":
             log.info("No regex tools matched — escalating to LLM-free general answer")
-            # No tools found but query is long enough — just send to LLM with no context
         else:
             log.info("No tools matched for short/non-general query — proceeding with empty context")
 
-    # Step 3: Parallel tool execution
+    # Step 3: Parallel tool execution (budgeted — leave ≥8s for LLM)
     results: list[ToolResult] = []
     if tool_calls:
-        results = await _execute_tools(tool_calls)
+        tool_budget = min(
+            float(settings.mcp_tool_timeout_s),
+            _remaining(t0, total_budget, margin=8),
+        )
+        if tool_budget > 1:
+            results = await _execute_tools(tool_calls, tool_budget)
+        else:
+            log.warning("No time budget for tools — skipping")
 
     # Step 4: Quality gate
     gate = context_assembler.quality_gate(results)
-    log.info("Quality gate: %s", gate)
+    log.info("Quality gate: %s (elapsed=%.1fs)", gate, time.monotonic() - t0)
 
     # Step 5: Context assembly
     assembled_context = context_assembler.assemble(results)
 
     # Step 6: If quality gate fails and query warrants it, escalate to web search
     if not gate["pass"] and _is_fresh_query(query):
-        log.info("Quality gate failed + fresh query — escalating to web_search")
-        search_result = await _execute_single_tool("web_search", {"query": query})
-        if search_result.ok:
-            results.append(search_result)
-            assembled_context = context_assembler.assemble(results)
-            gate = context_assembler.quality_gate(results)
+        remaining = _remaining(t0, total_budget, margin=8)
+        if remaining > 5:
+            log.info("Quality gate failed + fresh query — escalating to web_search (%.0fs left)", remaining)
+            search_result = await _execute_single_tool(
+                "web_search", {"query": query}, min(remaining, float(settings.mcp_tool_timeout_s)),
+            )
+            if search_result.ok:
+                results.append(search_result)
+                assembled_context = context_assembler.assemble(results)
+                gate = context_assembler.quality_gate(results)
+        else:
+            log.info("Quality gate failed but only %.0fs left — skipping web_search", remaining)
 
-    # Step 7: Single LLM call with assembled context
+    # Step 7: Single LLM call with assembled context (deadline-aware)
     tools_used = [r.tool_name for r in results if r.ok]
     data_sources = list({r.source for r in results if r.ok})
 
-    answer = await _llm_call(query, assembled_context, intent, context)
+    llm_budget = _remaining(t0, total_budget, margin=2)
+    if llm_budget < 3:
+        log.warning("Only %.1fs left for LLM call — returning tool context directly", llm_budget)
+        answer = assembled_context or "⏱️ Not enough time to generate a full answer. Please try again."
+    else:
+        log.info("LLM call budget: %.1fs (elapsed: %.1fs)", llm_budget, time.monotonic() - t0)
+        answer = await _llm_call(query, assembled_context, intent, context, timeout=llm_budget)
 
     elapsed = int((time.monotonic() - t0) * 1000)
 
@@ -442,30 +465,39 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
     )
 
 
-async def _execute_tools(tool_calls: list[dict[str, Any]]) -> list[ToolResult]:
+def _remaining(t0: float, total_budget: float, margin: float = 2) -> float:
+    """Seconds remaining in the budget, with a safety margin."""
+    elapsed = time.monotonic() - t0
+    return max(0, total_budget - elapsed - margin)
+
+
+async def _execute_tools(tool_calls: list[dict[str, Any]], per_tool_timeout: float = 10) -> list[ToolResult]:
     """Execute multiple tools in parallel using ThreadPoolExecutor."""
     loop = asyncio.get_running_loop()
 
     async def _run_one(tc: dict[str, Any]) -> ToolResult:
+        # Capture values up-front to avoid closure-over-loop-variable bugs
+        tool_name = tc["tool_name"]
+        tool_args = tc.get("arguments", {})
         try:
             return await asyncio.wait_for(
                 loop.run_in_executor(
                     _executor,
-                    lambda: client.call_tool(tc["tool_name"], tc.get("arguments", {})),
+                    lambda _n=tool_name, _a=tool_args: client.call_tool(_n, _a),
                 ),
-                timeout=settings.mcp_tool_timeout_s,
+                timeout=per_tool_timeout,
             )
         except asyncio.TimeoutError:
-            log.warning("Tool %s timed out after %ds", tc["tool_name"], settings.mcp_tool_timeout_s)
+            log.warning("Tool %s timed out after %.0fs", tool_name, per_tool_timeout)
             return ToolResult(
-                tool_name=tc["tool_name"],
+                tool_name=tool_name,
                 data="",
-                error=f"Timed out after {settings.mcp_tool_timeout_s}s",
+                error=f"Timed out after {per_tool_timeout:.0f}s",
             )
         except Exception as e:
-            log.error("Tool %s error: %s", tc["tool_name"], e)
+            log.error("Tool %s error: %s", tool_name, e)
             return ToolResult(
-                tool_name=tc["tool_name"],
+                tool_name=tool_name,
                 data="",
                 error=str(e),
             )
@@ -474,8 +506,9 @@ async def _execute_tools(tool_calls: list[dict[str, Any]]) -> list[ToolResult]:
     return list(await asyncio.gather(*tasks))
 
 
-async def _execute_single_tool(name: str, arguments: dict) -> ToolResult:
+async def _execute_single_tool(name: str, arguments: dict, timeout: float | None = None) -> ToolResult:
     """Execute a single tool (used for escalation)."""
+    _timeout = timeout or float(settings.mcp_tool_timeout_s)
     loop = asyncio.get_running_loop()
     try:
         return await asyncio.wait_for(
@@ -483,10 +516,10 @@ async def _execute_single_tool(name: str, arguments: dict) -> ToolResult:
                 _executor,
                 lambda: client.call_tool(name, arguments),
             ),
-            timeout=settings.mcp_tool_timeout_s,
+            timeout=_timeout,
         )
     except asyncio.TimeoutError:
-        return ToolResult(tool_name=name, data="", error="Timed out")
+        return ToolResult(tool_name=name, data="", error=f"Timed out after {_timeout:.0f}s")
     except Exception as e:
         return ToolResult(tool_name=name, data="", error=str(e))
 
@@ -496,6 +529,7 @@ async def _llm_call(
     context_block: str,
     intent: str,
     extra_context: dict[str, Any] | None = None,
+    timeout: float | None = None,
 ) -> str:
     """
     Single LLM call with assembled MCP context.
@@ -505,6 +539,7 @@ async def _llm_call(
 
     today = _date.today().strftime("%d %B %Y")
     dynamic_tokens = max_tokens_for(query)
+    llm_timeout = timeout or float(settings.tier2_budget_s)
 
     system = (
         f"You are an expert cricket analyst AI. Today is {today}.\n\n"
@@ -535,11 +570,11 @@ async def _llm_call(
                 _executor,
                 lambda: _call_gemini(full_prompt, dynamic_tokens),
             ),
-            timeout=settings.tier2_budget_s,
+            timeout=llm_timeout,
         )
         return answer
     except asyncio.TimeoutError:
-        log.warning("LLM call timed out after %ds", settings.tier2_budget_s)
+        log.warning("LLM call timed out after %.0fs", llm_timeout)
         return (
             "⏱️ The AI took too long to respond. Please try a shorter or simpler question.\n\n"
             "**Tip:** Be specific — e.g., 'Virat Kohli T20 batting stats' instead of a broad question."

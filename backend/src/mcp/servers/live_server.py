@@ -303,15 +303,19 @@ def _get_toss_data(match_ids: list[str]) -> dict[str, dict]:
     """
     Try to fetch toss info from Cricsheet parquet data for given match IDs.
     Returns {match_id: {toss_winner, toss_decision}}.
+
+    Reuses the RAG service's singleton CricsheetProvider to avoid OOM
+    on 512MB Railway containers.
     """
     if not match_ids:
         return {}
     try:
-        from backend.src.providers.cricsheet_provider import CricsheetProvider
+        from backend.src.services.rag_service import _get_provider
         import polars as pl
 
-        provider = CricsheetProvider()
-        provider.load()
+        provider = _get_provider()
+        if provider is None:
+            return {}
         lf = provider.datasets.get("balls")
         if lf is None:
             return {}

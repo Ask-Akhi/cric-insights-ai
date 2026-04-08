@@ -85,7 +85,7 @@ async def ask(req: AskRequest):
 
             mcp_result = await asyncio.wait_for(
                 mcp_run(req.prompt, ctx),
-                timeout=settings.tier2_budget_s,
+                timeout=settings.tier2_budget_s + 3,  # +3s slack so internal deadline fires first
             )
             if mcp_result.answer and not mcp_result.answer.startswith("❌"):
                 resp_dict = dict(
@@ -110,9 +110,39 @@ async def ask(req: AskRequest):
             else:
                 log.info("MCP path returned empty/error — falling through to legacy path")
         except asyncio.TimeoutError:
-            log.warning("MCP path timed out after %ds — falling through to legacy path", settings.tier2_budget_s)
+            # MCP path consumed the full budget — NO time for legacy fallback.
+            # Return a timeout error instead of cascading into another 30s+ path
+            # that would exceed Railway's 60s wall → 502.
+            elapsed_ms = int((time.monotonic() - _t0) * 1000)
+            log.warning("MCP path timed out after %dms — returning 503", elapsed_ms)
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": {
+                        "code": "TIMEOUT",
+                        "message": "Request timed out — the AI took too long. Please try a shorter or simpler question.",
+                        "detail": f"MCP pipeline timed out after {elapsed_ms}ms.",
+                        "retry_with_graph": True,
+                    }
+                },
+            )
         except Exception as e:
-            log.warning("MCP path failed: %s — falling through to legacy path", e)
+            # MCP failed fast — check remaining wall time before falling through
+            elapsed = time.monotonic() - _t0
+            remaining = 57.0 - elapsed  # Railway kills at 60s, 3s margin
+            if remaining < 10:
+                log.warning("MCP failed (%s) and only %.0fs left — returning error", e, remaining)
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": {
+                            "code": "MCP_ERROR",
+                            "message": str(e),
+                            "detail": "MCP path failed and insufficient time for fallback.",
+                        }
+                    },
+                )
+            log.warning("MCP path failed: %s — falling through to legacy path (%.0fs left)", e, remaining)
 
     # ── Legacy path (RAG → grounded → LangGraph) ─────────────────────────
     # Always run RAG first
