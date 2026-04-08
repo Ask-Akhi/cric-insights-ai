@@ -560,15 +560,15 @@ async def _llm_call(
         prompt_parts.append("")  # blank line
 
     prompt_parts.append(f"Question: {query}")
-    full_prompt = "\n".join(prompt_parts)
-
-    # Use the Gemini client directly
+    full_prompt = "\n".join(prompt_parts)    # Use the Gemini client directly.
+    # Pass llm_timeout into _call_gemini so it sets HTTP-level timeouts
+    # (asyncio.wait_for cannot cancel sync code in ThreadPoolExecutor).
     loop = asyncio.get_running_loop()
     try:
         answer = await asyncio.wait_for(
             loop.run_in_executor(
                 _executor,
-                lambda: _call_gemini(full_prompt, dynamic_tokens),
+                lambda _t=llm_timeout: _call_gemini(full_prompt, dynamic_tokens, timeout=_t),
             ),
             timeout=llm_timeout,
         )
@@ -584,8 +584,18 @@ async def _llm_call(
         return f"❌ Error generating response: {e}"
 
 
-def _call_gemini(prompt: str, max_output_tokens: int) -> str:
-    """Synchronous Gemini API call — runs in executor."""
+def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> str:
+    """Synchronous Gemini API call — runs in executor.
+
+    ``timeout`` caps each HTTP request *and* the total wall time for retries.
+    This is critical because ``asyncio.wait_for`` cannot cancel a running
+    ``run_in_executor`` thread — if we don't cap here, the thread keeps
+    running long past the asyncio timeout.
+    """
+    import time as _time
+
+    _deadline = _time.monotonic() + timeout
+
     from backend.src.services.llm_settings import GEMINI_API_KEY
 
     if not GEMINI_API_KEY:
@@ -594,7 +604,12 @@ def _call_gemini(prompt: str, max_output_tokens: int) -> str:
     from google import genai
     from google.genai import types
 
-    client_instance = genai.Client(api_key=GEMINI_API_KEY)
+    # Hard HTTP-level timeout so httpx aborts the request on time
+    http_timeout = max(8, int(timeout) - 2)  # per-request cap, leave 2s margin
+    client_instance = genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(timeout=http_timeout),
+    )
 
     from backend.src.services.llm_client import (
         GEMINI_FALLBACK_MODELS,
@@ -610,7 +625,13 @@ def _call_gemini(prompt: str, max_output_tokens: int) -> str:
     )
 
     for model in models:
+        if _time.monotonic() >= _deadline:
+            log.warning("_call_gemini budget exhausted before trying model %s", model)
+            break
+
         for attempt in range(2):
+            if _time.monotonic() >= _deadline:
+                break
             try:
                 response = client_instance.models.generate_content(
                     model=model,
@@ -640,16 +661,15 @@ def _call_gemini(prompt: str, max_output_tokens: int) -> str:
 
             except Exception as e:
                 err = str(e)
+                remaining = _deadline - _time.monotonic()
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                    if attempt == 0:
-                        import time as _time
-                        _time.sleep(8)
+                    if attempt == 0 and remaining > 10:
+                        _time.sleep(min(5, remaining - 5))
                         continue
                     break
                 elif "503" in err or "UNAVAILABLE" in err or "overloaded" in err.lower():
-                    if attempt == 0:
-                        import time as _time
-                        _time.sleep(3)
+                    if attempt == 0 and remaining > 6:
+                        _time.sleep(min(2, remaining - 4))
                         continue
                     break
                 elif "404" in err or "NOT_FOUND" in err:

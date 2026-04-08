@@ -159,7 +159,10 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(timeout=40),  # hard HTTP cap — Railway kills at 60s
+    )
     # Grounded path uses a shorter prompt so Gemini responds faster (web search adds ~15s)
     full_prompt = _build_prompt(prompt, context, grounded=grounded)
 
@@ -251,14 +254,14 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                 err = str(e)
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
                     if attempt == 0:
-                        time.sleep(8)
+                        time.sleep(3)
                         continue
                     break   # try next model
                 elif "503" in err or "UNAVAILABLE" in err or "overloaded" in err.lower() or "high demand" in err.lower():
                     # Gemini capacity error — brief pause then try next model
                     _logger.warning("Gemini %s 503/UNAVAILABLE — trying next model", model)
                     if attempt == 0:
-                        time.sleep(3)
+                        time.sleep(2)
                         continue
                     break   # try next model
                 elif "404" in err or "NOT_FOUND" in err:
