@@ -97,7 +97,9 @@ async def ask(req: AskRequest):
                     latency_ms=mcp_result.latency_ms,
                     rag_cache_hit=False,
                 )
-                llm_cache.put(req.prompt, req.grounded, fmt, resp_dict)
+                # Don't cache quota/error messages — only real answers
+                if not mcp_result.answer.startswith("⚠️") and not mcp_result.answer.startswith("⏱️"):
+                    llm_cache.put(req.prompt, req.grounded, fmt, resp_dict)
                 token_tracker.record(
                     prompt=req.prompt, response=mcp_result.answer,
                     intent=mcp_result.intent, grounded=req.grounded,
