@@ -18,11 +18,22 @@ interface Props {
 
 // ── Intent badge config ────────────────────────────────────────────────────
 const INTENT_CONFIG: Record<AskIntent, { label: string; color: string; bg: string }> = {
-  stats:   { label: '📊 Stats',      color: '#60a5fa', bg: 'rgba(96,165,250,0.12)'  },
-  compare: { label: '⚖️ Compare',    color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
-  fantasy: { label: '🏆 Fantasy',    color: '#fbbf24', bg: 'rgba(251,191,36,0.12)'  },
-  predict: { label: '🔮 Predict',    color: '#34d399', bg: 'rgba(52,211,153,0.12)'  },
-  general: { label: '💬 General',    color: '#ff6b35', bg: 'rgba(255,107,53,0.12)'  },
+  // legacy intents
+  stats:         { label: '📊 Stats',         color: '#60a5fa', bg: 'rgba(96,165,250,0.12)'  },
+  compare:       { label: '⚖️ Compare',       color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
+  fantasy:       { label: '🏆 Fantasy',       color: '#fbbf24', bg: 'rgba(251,191,36,0.12)'  },
+  predict:       { label: '🔮 Predict',       color: '#34d399', bg: 'rgba(52,211,153,0.12)'  },
+  general:       { label: '💬 General',       color: '#ff6b35', bg: 'rgba(255,107,53,0.12)'  },
+  // new MCP intents
+  batting_stats: { label: '🏏 Batting',       color: '#60a5fa', bg: 'rgba(96,165,250,0.12)'  },
+  bowling_stats: { label: '🎳 Bowling',       color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
+  live:          { label: '🔴 Live',          color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+  toss:          { label: '🪙 Toss',          color: '#fbbf24', bg: 'rgba(251,191,36,0.12)'  },
+  venue:         { label: '🏟️ Venue',         color: '#34d399', bg: 'rgba(52,211,153,0.12)'  },
+  head_to_head:  { label: '⚔️ Head-to-Head',  color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
+  form:          { label: '📈 Form',          color: '#34d399', bg: 'rgba(52,211,153,0.12)'  },
+  recent:        { label: '🕐 Recent',        color: '#60a5fa', bg: 'rgba(96,165,250,0.12)'  },
+  prediction:    { label: '🔮 Prediction',    color: '#34d399', bg: 'rgba(52,211,153,0.12)'  },
 }
 
 // ── Thinking steps shown during graph execution ────────────────────────────
@@ -67,6 +78,7 @@ function ModeBadge({ mode }: { mode: AskMode }) {
     direct:   { label: '⚡ Quick Answer', color: '#60a5fa' },
     fallback: { label: '🔄 Fallback',     color: '#f87171' },
     grounded: { label: '🌐 Web-grounded', color: '#34d399' },
+    mcp:      { label: '🔧 MCP',          color: '#fb923c' },
   }
   const c = cfg[mode] ?? cfg.direct
   return (
@@ -148,7 +160,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
   const isCached   = answer?.startsWith('⚡')
   const showSide   = sidePanel && sidePanelReady
   const hasResult  = loading || answer || error
-  const intentCfg  = INTENT_CONFIG[intent]
+  const intentCfg  = INTENT_CONFIG[intent] ?? INTENT_CONFIG.general
   const showEmpty  = !hasResult
 
   return (

@@ -1,5 +1,9 @@
-export type AskIntent = 'stats' | 'compare' | 'fantasy' | 'predict' | 'general'
-export type AskMode  = 'graph' | 'direct' | 'fallback' | 'grounded'
+export type AskIntent =
+  | 'stats' | 'compare' | 'fantasy' | 'predict' | 'general'
+  // new MCP intents from orchestrator.py
+  | 'batting_stats' | 'bowling_stats' | 'live' | 'toss' | 'venue'
+  | 'head_to_head' | 'form' | 'recent' | 'prediction'
+export type AskMode  = 'graph' | 'direct' | 'fallback' | 'grounded' | 'mcp'
 
 export interface AskPayload {
   prompt: string
