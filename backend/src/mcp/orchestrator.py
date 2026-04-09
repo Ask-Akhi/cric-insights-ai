@@ -602,13 +602,12 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
         return "❌ GEMINI_API_KEY not set. Please configure it in Railway Variables."
 
     from google import genai
-    from google.genai import types
-
-    # Hard HTTP-level timeout so httpx aborts the request on time
-    http_timeout = max(8, int(timeout) - 2)  # per-request cap, leave 2s margin
+    from google.genai import types    # Hard HTTP-level timeout so httpx aborts the request on time.
+    # HttpOptions.timeout is in MILLISECONDS (google-genai divides by 1000).
+    http_timeout_ms = max(8_000, int(timeout * 1000) - 2_000)
     client_instance = genai.Client(
         api_key=GEMINI_API_KEY,
-        http_options=types.HttpOptions(timeout=http_timeout),
+        http_options=types.HttpOptions(timeout=http_timeout_ms),
     )
 
     from backend.src.services.llm_client import (

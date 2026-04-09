@@ -161,7 +161,7 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
 
     client = genai.Client(
         api_key=GEMINI_API_KEY,
-        http_options=types.HttpOptions(timeout=40),  # hard HTTP cap — Railway kills at 60s
+        http_options=types.HttpOptions(timeout=40_000),  # 40s in ms — Railway kills at 60s
     )
     # Grounded path uses a shorter prompt so Gemini responds faster (web search adds ~15s)
     full_prompt = _build_prompt(prompt, context, grounded=grounded)
