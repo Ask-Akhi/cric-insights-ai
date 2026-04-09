@@ -665,11 +665,10 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
 
             except Exception as e:
                 err = str(e)
-                remaining = _deadline - _time.monotonic()
-                if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                remaining = _deadline - _time.monotonic()                if "429" in err or "RESOURCE_EXHAUSTED" in err:
                     # Quota exhaustion (daily limit) → all models share the same
                     # key, so trying fallback models is pointless. Fail fast.
-                    if "quota" in err.lower() or "exceeded" in err.lower():
+                    if "quota" in err.lower() or "exceeded" in err.lower() or "RESOURCE_EXHAUSTED" in err:
                         log.warning("Gemini quota exhausted — aborting all retries")
                         return (
                             "⚠️ The AI service has reached its daily usage limit. "

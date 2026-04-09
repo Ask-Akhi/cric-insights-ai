@@ -5,6 +5,24 @@ from datetime import date
 from typing import Dict, Any, Optional
 from .llm_settings import LLM_PROVIDER, LLM_MODEL, GEMINI_API_KEY, OPENAI_API_KEY
 
+# ─── Quota fast-fail flag ──────────────────────────────────────────────────
+# When a daily quota error is detected, set this flag with an expiry so
+# subsequent in-process requests fail instantly instead of hitting the API.
+_quota_exhausted_until: float = 0.0  # monotonic timestamp — 0 means not set
+_QUOTA_BACKOFF_S = 300  # 5 min — recheck after this long
+
+def _is_quota_exhausted() -> bool:
+    return time.monotonic() < _quota_exhausted_until
+
+def _set_quota_exhausted() -> None:
+    global _quota_exhausted_until
+    _quota_exhausted_until = time.monotonic() + _QUOTA_BACKOFF_S
+
+_QUOTA_MSG = (
+    "⚠️ The AI service has reached its daily usage limit. "
+    "Please try again in a few hours, or the limit resets at midnight Pacific time."
+)
+
 # ─── Token / Prompt limits ─────────────────────────────────────────────────
 MAX_PROMPT_CHARS         = 12000  # ~3000 tokens — for non-grounded (LangGraph) path
 MAX_PROMPT_CHARS_GROUNDED = 6000  # grounded path: allow room for prediction tables
@@ -35,12 +53,14 @@ def _max_tokens_for(prompt: str) -> int:
     return 2048
 
 # ─── Fallback models (verified available, best-first order) ───────────────
+# gemini-2.0-flash: 1,500 RPD free tier — primary workhorse
+# gemini-2.5-flash: only ~25-50 RPD on free tier — last resort only
 GEMINI_FALLBACK_MODELS = [
-    "gemini-2.5-flash",         # largest context + best current knowledge
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash-lite-001",
+    "gemini-2.5-flash",         # low free quota — last resort
 ]
 
 
@@ -254,7 +274,7 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                 err = str(e)
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
                     # Quota exhaustion → all models share same key, fail fast
-                    if "quota" in err.lower() or "exceeded" in err.lower():
+                    if "quota" in err.lower() or "exceeded" in err.lower() or "RESOURCE_EXHAUSTED" in err:
                         _logger.warning("Gemini quota exhausted — aborting retries")
                         return (
                             "⚠️ The AI service has reached its daily usage limit. "
