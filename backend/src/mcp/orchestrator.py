@@ -602,7 +602,9 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
         return "❌ GEMINI_API_KEY not set. Please configure it in Railway Variables."
 
     from google import genai
-    from google.genai import types    # Hard HTTP-level timeout so httpx aborts the request on time.
+    from google.genai import types
+
+    # Hard HTTP-level timeout so httpx aborts the request on time.
     # HttpOptions.timeout is in MILLISECONDS (google-genai divides by 1000).
     # Cap per-request at 25s so one hung request doesn't consume the full budget,
     # leaving room to try fallback models.
@@ -665,8 +667,17 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
                 err = str(e)
                 remaining = _deadline - _time.monotonic()
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                    if attempt == 0 and remaining > 10:
-                        _time.sleep(min(5, remaining - 5))
+                    # Quota exhaustion (daily limit) → all models share the same
+                    # key, so trying fallback models is pointless. Fail fast.
+                    if "quota" in err.lower() or "exceeded" in err.lower():
+                        log.warning("Gemini quota exhausted — aborting all retries")
+                        return (
+                            "⚠️ The AI service has reached its daily usage limit. "
+                            "Please try again later or ask a simpler question."
+                        )
+                    # Transient rate limit — brief pause then retry
+                    if attempt == 0 and remaining > 6:
+                        _time.sleep(min(3, remaining - 3))
                         continue
                     break
                 elif "503" in err or "UNAVAILABLE" in err or "overloaded" in err.lower():

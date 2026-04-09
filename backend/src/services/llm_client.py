@@ -253,8 +253,15 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
             except Exception as e:
                 err = str(e)
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    # Quota exhaustion → all models share same key, fail fast
+                    if "quota" in err.lower() or "exceeded" in err.lower():
+                        _logger.warning("Gemini quota exhausted — aborting retries")
+                        return (
+                            "⚠️ The AI service has reached its daily usage limit. "
+                            "Please try again later or ask a simpler question."
+                        )
                     if attempt == 0:
-                        time.sleep(3)
+                        time.sleep(2)
                         continue
                     break   # try next model
                 elif "503" in err or "UNAVAILABLE" in err or "overloaded" in err.lower() or "high demand" in err.lower():
