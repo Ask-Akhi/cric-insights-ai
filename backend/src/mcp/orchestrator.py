@@ -81,7 +81,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"\b(recent\s*(match|result|game)|last\s*(match|game|result)|"
         r"yesterday.s?\s*match|who\s*won|result\s*of|score\s*of\s*yesterday|"
         r"latest\s*result)\b", re.I
-    )),    # Fantasy / prediction — checked BEFORE head_to_head because "CSK vs MI"
+    )),
+    # Fantasy / prediction — checked BEFORE head_to_head because "CSK vs MI"
     # contains "vs" which would otherwise match head_to_head first.
     ("fantasy", re.compile(
         r"\b(fantasy|dream\s*11|dream11|playing\s*xi|playing\s*11|"
@@ -560,7 +561,8 @@ async def _llm_call(
         prompt_parts.append("")  # blank line
 
     prompt_parts.append(f"Question: {query}")
-    full_prompt = "\n".join(prompt_parts)    # Use the Gemini client directly.
+    full_prompt = "\n".join(prompt_parts)
+    # Use the Gemini client directly.
     # Pass llm_timeout into _call_gemini so it sets HTTP-level timeouts
     # (asyncio.wait_for cannot cancel sync code in ThreadPoolExecutor).
     loop = asyncio.get_running_loop()
@@ -665,10 +667,11 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
 
             except Exception as e:
                 err = str(e)
-                remaining = _deadline - _time.monotonic()                if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                    # Quota exhaustion (daily limit) → all models share the same
-                    # key, so trying fallback models is pointless. Fail fast.
-                    if "quota" in err.lower() or "exceeded" in err.lower() or "RESOURCE_EXHAUSTED" in err:
+                remaining = _deadline - _time.monotonic()
+                if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    # Quota exhaustion — all models share the same key, fail fast.
+                    # RESOURCE_EXHAUSTED alone is enough; don't require "quota" keyword.
+                    if "RESOURCE_EXHAUSTED" in err or "quota" in err.lower() or "exceeded" in err.lower():
                         log.warning("Gemini quota exhausted — aborting all retries")
                         return (
                             "⚠️ The AI service has reached its daily usage limit. "
