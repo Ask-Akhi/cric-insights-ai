@@ -604,7 +604,10 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
     from google import genai
     from google.genai import types    # Hard HTTP-level timeout so httpx aborts the request on time.
     # HttpOptions.timeout is in MILLISECONDS (google-genai divides by 1000).
-    http_timeout_ms = max(8_000, int(timeout * 1000) - 2_000)
+    # Cap per-request at 25s so one hung request doesn't consume the full budget,
+    # leaving room to try fallback models.
+    per_request_s = min(25, max(8, timeout - 2))
+    http_timeout_ms = int(per_request_s * 1000)
     client_instance = genai.Client(
         api_key=GEMINI_API_KEY,
         http_options=types.HttpOptions(timeout=http_timeout_ms),

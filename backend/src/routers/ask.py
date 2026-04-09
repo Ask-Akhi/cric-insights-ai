@@ -108,7 +108,22 @@ async def ask(req: AskRequest):
                 )
                 return AskResponse(**resp_dict)
             else:
-                log.info("MCP path returned empty/error — falling through to legacy path")
+                # MCP returned empty or error — check wall time before legacy fallback
+                elapsed = time.monotonic() - _t0
+                remaining = 57.0 - elapsed
+                if remaining < 15:
+                    log.warning("MCP empty/error and only %.0fs left — returning 503", remaining)
+                    return JSONResponse(
+                        status_code=503,
+                        content={
+                            "error": {
+                                "code": "MCP_ERROR",
+                                "message": mcp_result.answer or "AI could not generate a response.",
+                                "detail": f"MCP returned error after {int(elapsed*1000)}ms, insufficient time for fallback.",
+                            }
+                        },
+                    )
+                log.info("MCP path returned empty/error — falling through to legacy path (%.0fs left)", remaining)
         except asyncio.TimeoutError:
             # MCP path consumed the full budget — NO time for legacy fallback.
             # Return a timeout error instead of cascading into another 30s+ path
@@ -271,11 +286,14 @@ async def ask(req: AskRequest):
         return AskResponse(**resp_dict)
 
     # LangGraph multi-step pipeline (non-grounded)
+    # Cap timeout to remaining wall time (Railway kills at 60s)
+    elapsed_so_far = time.monotonic() - _t0
+    graph_timeout = min(_ASK_TIMEOUT, max(5.0, 57.0 - elapsed_so_far))
     try:
         from ..services.cricket_graph import run_graph
         result = await asyncio.wait_for(
             run_graph(req.prompt, enriched),
-            timeout=_ASK_TIMEOUT,
+            timeout=graph_timeout,
         )
     except asyncio.TimeoutError:
         log.warning("LangGraph timed out for prompt: '%s'", req.prompt[:60])
