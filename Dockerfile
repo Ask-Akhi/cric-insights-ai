@@ -22,6 +22,7 @@ WORKDIR /app
 ENV LLM_PROVIDER=gemini \
     LLM_MODEL=gemini-2.0-flash \
     CRICSHEET_DATA_DIR=/app/data/cricsheet \
+    CRICSHEET_REFRESH_HOURS=6 \
     FRONTEND_DIST=/app/frontend/dist \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \

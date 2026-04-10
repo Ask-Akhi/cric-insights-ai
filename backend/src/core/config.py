@@ -68,11 +68,12 @@ class Settings:
     # ── Admin ──────────────────────────────────────────────
     admin_key: str = field(
         default_factory=lambda: os.getenv("ADMIN_KEY", "")
-    )
-
-    # ── Data ───────────────────────────────────────────────
+    )    # ── Data ───────────────────────────────────────────────
     cricsheet_data_dir: str = field(
         default_factory=lambda: os.getenv("CRICSHEET_DATA_DIR", "./data/cricsheet")
+    )
+    cricsheet_refresh_hours: float = field(
+        default_factory=lambda: float(os.getenv("CRICSHEET_REFRESH_HOURS", "6"))
     )
 
 

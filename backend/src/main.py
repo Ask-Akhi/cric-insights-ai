@@ -27,7 +27,15 @@ async def lifespan(app: FastAPI):
     log.info("FRONTEND_DIST=%s exists=%s", DIST_DIR, os.path.isdir(DIST_DIR))
     if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
         log.warning("No LLM API key set — add GEMINI_API_KEY in Railway Variables")
+
+    # Start periodic Cricsheet data refresh (default: every 6h, 0 = disabled)
+    from .services import data_refresh_scheduler
+    data_refresh_scheduler.start()
+
     yield  # application runs here
+
+    # Shutdown: cancel the refresh scheduler
+    await data_refresh_scheduler.stop()
 
 app = FastAPI(title="Cric Insights API", lifespan=lifespan)
 
@@ -61,14 +69,19 @@ def health():
         from .providers.cricsheet_provider import CricsheetProvider
         data_status = CricsheetProvider.data_status()
     except Exception:
-        data_status = {"error": "could not check"}
-
-    # Circuit breaker status — shows if Gemini quota is exhausted
+        data_status = {"error": "could not check"}    # Circuit breaker status — shows if Gemini quota is exhausted
     try:
         from .services.circuit_breaker import gemini_breaker
         breaker_status = gemini_breaker.status()
     except Exception:
         breaker_status = {"error": "could not check"}
+
+    # Data refresh scheduler status
+    try:
+        from .services.data_refresh_scheduler import schedule_status
+        refresh_schedule = schedule_status()
+    except Exception:
+        refresh_schedule = {"error": "could not check"}
 
     return {
         "status": "ok",
@@ -77,6 +90,7 @@ def health():
         "frontend_ok": os.path.isdir(DIST_DIR),
         "cricsheet_data": data_status,
         "circuit_breaker": breaker_status,
+        "refresh_schedule": refresh_schedule,
     }
 
 # ── Routers — let import errors surface so Railway logs show the real cause ───

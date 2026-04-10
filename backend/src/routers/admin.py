@@ -207,3 +207,13 @@ def circuit_breaker_reset(key: Optional[str] = Query(default=None)) -> dict:
     from ..services.circuit_breaker import gemini_breaker
     gemini_breaker._tripped_at = 0
     return {"message": "Circuit breaker manually reset.", **gemini_breaker.status()}
+
+
+# ── Data refresh scheduler ───────────────────────────────────────────────────
+
+@router.get("/refresh-schedule")
+def refresh_schedule_status(key: Optional[str] = Query(default=None)) -> dict:
+    """Return data refresh scheduler state. Requires ?key=ADMIN_KEY."""
+    _require_key(key)
+    from ..services.data_refresh_scheduler import schedule_status
+    return schedule_status()
