@@ -8,6 +8,7 @@ The existing per-function cache inside llm_client.py is kept for backward
 compat but this module is the primary cost-saver.
 """
 import hashlib
+import re
 import time
 import copy
 import logging
@@ -22,10 +23,50 @@ CACHE_MAX_ENTRIES = 200  # evict oldest when full
 # ── Storage ───────────────────────────────────────────────────────────────────
 _store: Dict[str, Dict[str, Any]] = {}
 
+# ── Player name normalization ─────────────────────────────────────────────────
+# Common aliases → canonical. This dramatically increases cache hit rate:
+# "Kohli batting stats", "virat kohli batting stats", "V Kohli batting stats"
+# all map to the same key.
+_PLAYER_NORMALIZE: dict[str, str] = {
+    "kohli": "virat kohli", "vk": "virat kohli", "v kohli": "virat kohli", "king kohli": "virat kohli",
+    "rohit": "rohit sharma", "hitman": "rohit sharma", "ro": "rohit sharma",
+    "bumrah": "jasprit bumrah", "boom": "jasprit bumrah", "jb": "jasprit bumrah",
+    "dhoni": "ms dhoni", "msd": "ms dhoni", "thala": "ms dhoni",
+    "babar": "babar azam", "williamson": "kane williamson",
+    "smith": "steve smith", "warner": "david warner",
+    "root": "joe root", "stokes": "ben stokes",
+    "gill": "shubman gill", "pant": "rishabh pant",
+    "jadeja": "ravindra jadeja", "ashwin": "r ashwin", "siraj": "mohammed siraj",
+    "rashid": "rashid khan",
+}
+
+
+def _normalize_query(prompt: str) -> str:
+    """Normalize query for higher cache hit rate.
+
+    - lowercase + collapse whitespace
+    - strip punctuation (? . , !)
+    - normalize common player name aliases
+    """
+    q = prompt.strip().lower()
+    q = re.sub(r"[?.!,;:'\"-]+", " ", q)   # strip punctuation
+    q = re.sub(r"\s+", " ", q).strip()       # collapse whitespace
+
+    # Replace known aliases with canonical names.
+    # Process longer aliases first (e.g. "king kohli" before "kohli").
+    # Skip if the canonical name is already present (avoid double-replacement).
+    for alias, canonical in sorted(_PLAYER_NORMALIZE.items(), key=lambda x: -len(x[0])):
+        if canonical in q:
+            continue  # canonical already present — don't double-replace
+        q = re.sub(r"\b" + re.escape(alias) + r"\b", canonical, q)
+
+    return q
+
 
 def _make_key(prompt: str, grounded: bool, fmt: str = "") -> str:
     """Deterministic cache key from the user-visible inputs."""
-    raw = f"{prompt.strip().lower()}|g={grounded}|f={fmt}"
+    normalized = _normalize_query(prompt)
+    raw = f"{normalized}|g={grounded}|f={fmt}"
     return hashlib.sha256(raw.encode()).hexdigest()[:24]
 
 

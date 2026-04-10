@@ -4,19 +4,7 @@ import hashlib
 from datetime import date
 from typing import Dict, Any, Optional
 from .llm_settings import LLM_PROVIDER, LLM_MODEL, GEMINI_API_KEY, OPENAI_API_KEY
-
-# ─── Quota fast-fail flag ──────────────────────────────────────────────────
-# When a daily quota error is detected, set this flag with an expiry so
-# subsequent in-process requests fail instantly instead of hitting the API.
-_quota_exhausted_until: float = 0.0  # monotonic timestamp — 0 means not set
-_QUOTA_BACKOFF_S = 300  # 5 min — recheck after this long
-
-def _is_quota_exhausted() -> bool:
-    return time.monotonic() < _quota_exhausted_until
-
-def _set_quota_exhausted() -> None:
-    global _quota_exhausted_until
-    _quota_exhausted_until = time.monotonic() + _QUOTA_BACKOFF_S
+from .circuit_breaker import gemini_breaker
 
 _QUOTA_MSG = (
     "⚠️ The AI service has reached its daily usage limit. "
@@ -176,6 +164,11 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     if not GEMINI_API_KEY:
         return "❌ GEMINI_API_KEY not set in .env file."
 
+    # Circuit breaker — skip API call entirely when quota is exhausted
+    if gemini_breaker.is_open:
+        gemini_breaker.record_skip()
+        return _QUOTA_MSG
+
     from google import genai
     from google.genai import types
 
@@ -275,11 +268,9 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
                     # Quota exhaustion → all models share same key, fail fast
                     if "quota" in err.lower() or "exceeded" in err.lower() or "RESOURCE_EXHAUSTED" in err:
-                        _logger.warning("Gemini quota exhausted — aborting retries")
-                        return (
-                            "⚠️ The AI service has reached its daily usage limit. "
-                            "Please try again later or ask a simpler question."
-                        )
+                        _logger.warning("Gemini quota exhausted — tripping circuit breaker")
+                        gemini_breaker.trip(reason=err[:120])
+                        return _QUOTA_MSG
                     if attempt == 0:
                         time.sleep(2)
                         continue

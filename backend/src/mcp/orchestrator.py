@@ -1,19 +1,21 @@
 """
 MCP Orchestrator — the brain of the MCP pipeline.
 
-Pipeline:
+Pipeline (2-phase waterfall):
   1. Regex intent classification (0 tokens)
   2. Tool selection based on intent + entity extraction
-  3. Parallel tool execution via ThreadPoolExecutor
-  4. Context assembly with token-aware truncation
-  5. Context quality gate
-  6. Single LLM call with assembled context
-  7. Escalation: LLM function-calling fallback (gated)
+  3. **Phase A**: Execute LOCAL tools (cricsheet + live) — free/cheap
+  4. Quality gate on Phase A results
+  5. If gate passes OR stat intent → return directly (RAG fast-path, skip Gemini)
+  6. **Phase B**: Only if needed — expensive tools (web search via Gemini)
+  7. Context assembly with token-aware truncation
+  8. Single LLM call with assembled context (deadline-aware)
 
 Design goals:
-  - 1 LLM call per query (down from 3 in LangGraph) → ~33% token savings
-  - Regex first (0 cost) → LLM fallback only when regex finds nothing
-  - Live data integrated → avoids web search for time-sensitive queries
+  - Local-first: Cricsheet data answers stat queries at $0 cost
+  - 2-phase waterfall: expensive tools only when cheap tools fail
+  - Circuit breaker: when Gemini quota is exhausted, serve local data gracefully
+  - 1 LLM call per query max (down from 3+ in the old parallel approach)
 """
 from __future__ import annotations
 
@@ -374,29 +376,59 @@ def _extract_venue(query: str) -> str:
 
 # ── Orchestrator main entry point ──────────────────────────────────────────────
 
+# Intents that can be fully answered from local Cricsheet data (no Gemini needed)
+_RAG_ONLY_INTENTS = frozenset({
+    "batting_stats", "bowling_stats", "head_to_head", "form", "venue", "team_matchup",
+})
+
+# Intents that REQUIRE live/web data — always allow search_server
+_NEEDS_WEB_INTENTS = frozenset({
+    "live", "toss", "recent",
+})
+
+# Tools that are LOCAL (no Gemini cost)
+_LOCAL_TOOLS = frozenset({
+    "player_batting_stats", "player_bowling_stats", "head_to_head",
+    "venue_stats", "recent_form", "team_matchup",
+})
+
+# Tools that use external APIs but NOT Gemini (cheap)
+_LIVE_TOOLS = frozenset({
+    "live_scores", "match_status", "toss_info", "recent_matches",
+})
+
+# Tools that cost Gemini tokens (expensive)
+_EXPENSIVE_TOOLS = frozenset({
+    "web_search",
+})
+
+
 async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
     """
-    Full MCP pipeline:
-      regex intent → tool selection → parallel execution → context assembly
-      → quality gate → single LLM call
+    Full MCP pipeline — 2-phase waterfall:
+      Phase A: regex intent → local/cheap tools → quality gate → RAG fast-path
+      Phase B: (only if needed) web search → context assembly → single LLM call
 
     Tracks elapsed wall time so the LLM call never exceeds the remaining
     budget (Railway hard-kills at 60s).
     """
+    from ..services.circuit_breaker import gemini_breaker
+
     t0 = time.monotonic()
     context = context or {}
-    # Total budget for the MCP pipeline (ask.py wraps us in this timeout too)
     total_budget = settings.tier2_budget_s  # 44s
+    _gemini_calls = 0  # observability counter
 
     # Step 1: Intent classification (regex — 0 tokens)
     intent = classify_intent(query)
-    log.info("Intent: %s for query: '%.80s'", intent, query)
+    is_fresh = _is_fresh_query(query)
+    log.info("Intent: %s (fresh=%s) for query: '%.80s'", intent, is_fresh, query)
 
     # Step 2: Select tools
     tool_calls = select_tools(query, intent)
     log.info("Selected %d tools: %s", len(tool_calls), [t["tool_name"] for t in tool_calls])
 
-    # Step 2b: Escalation — if no tools found, check if LLM fallback is warranted
+    # Step 2b: No tools found — short-circuit
     if not tool_calls:
         word_count = len(query.split())
         if word_count >= settings.mcp_llm_fallback_min_words and intent == "general":
@@ -404,30 +436,100 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
         else:
             log.info("No tools matched for short/non-general query — proceeding with empty context")
 
-    # Step 3: Parallel tool execution (budgeted — leave ≥8s for LLM)
+    # ══════════════════════════════════════════════════════════════════════
+    # PHASE A: Execute LOCAL + LIVE tools (free/cheap — no Gemini cost)
+    # ══════════════════════════════════════════════════════════════════════
+    local_calls = [t for t in tool_calls if t["tool_name"] in _LOCAL_TOOLS]
+    live_calls = [t for t in tool_calls if t["tool_name"] in _LIVE_TOOLS]
+    expensive_calls = [t for t in tool_calls if t["tool_name"] in _EXPENSIVE_TOOLS]
+    phase_a_calls = local_calls + live_calls
+
     results: list[ToolResult] = []
-    if tool_calls:
+    if phase_a_calls:
         tool_budget = min(
             float(settings.mcp_tool_timeout_s),
             _remaining(t0, total_budget, margin=8),
         )
         if tool_budget > 1:
-            results = await _execute_tools(tool_calls, tool_budget)
+            results = await _execute_tools(phase_a_calls, tool_budget)
+            log.info(
+                "Phase A done: %d/%d tools OK in %.1fs",
+                sum(1 for r in results if r.ok), len(phase_a_calls),
+                time.monotonic() - t0,
+            )
         else:
-            log.warning("No time budget for tools — skipping")
+            log.warning("No time budget for Phase A tools — skipping")
 
-    # Step 4: Quality gate
+    # Step 4: Quality gate on Phase A results
     gate = context_assembler.quality_gate(results)
-    log.info("Quality gate: %s (elapsed=%.1fs)", gate, time.monotonic() - t0)
+    log.info("Phase A quality gate: %s (elapsed=%.1fs)", gate, time.monotonic() - t0)
 
-    # Step 5: Context assembly
+    # Step 5: Context assembly from Phase A
     assembled_context = context_assembler.assemble(results)
 
-    # Step 6: If quality gate fails and query warrants it, escalate to web search
-    if not gate["pass"] and _is_fresh_query(query):
+    # ══════════════════════════════════════════════════════════════════════
+    # RAG FAST-PATH — skip Gemini entirely when local data is sufficient
+    # This is the primary quota saver. For stat queries that Cricsheet can
+    # answer directly, we return the assembled data without touching Gemini.
+    # ══════════════════════════════════════════════════════════════════════
+    cricsheet_results = [r for r in results if r.ok and r.source == "cricsheet"]
+    cricsheet_tokens = sum(r.tokens_estimate for r in cricsheet_results)
+
+    if (
+        intent in _RAG_ONLY_INTENTS
+        and cricsheet_tokens >= 150           # enough data to answer directly
+        and gate["pass"]
+        and not is_fresh                      # freshness still needs LLM synthesis
+    ):
+        log.info(
+            "RAG fast-path: returning cricsheet data directly (%d tokens, intent=%s) — skipping Gemini",
+            cricsheet_tokens, intent,
+        )
+        return _build_result(results, query, intent, assembled_context, t0)
+
+    # Circuit breaker check — if Gemini quota is exhausted, return local data
+    # gracefully instead of hitting the API and failing.
+    if gemini_breaker.is_open:
+        gemini_breaker.record_skip()
+        if assembled_context and gate["pass"]:
+            log.info("Circuit breaker open + local data available — serving local-only answer")
+            return _build_result(results, query, intent, assembled_context, t0)
+        else:
+            log.warning("Circuit breaker open + insufficient local data — returning quota message")
+            return AskResult(
+                answer=(
+                    "⚠️ The AI service has reached its daily usage limit. "
+                    "However, I found some local data:\n\n"
+                    + (assembled_context or "No local data available for this query.")
+                    + "\n\n> *Full AI analysis will be available when the quota resets.*"
+                ),
+                intent=intent,
+                players=_extract_players(query),
+                mode="mcp",
+                data_sources=list({r.source for r in results if r.ok}),
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                tools_used=[r.tool_name for r in results if r.ok],
+            )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PHASE B: Expensive tools (web search) — only when truly needed
+    # Conditions: gate failed OR intent needs web data, AND enough time left
+    # ══════════════════════════════════════════════════════════════════════
+    needs_web = (
+        (not gate["pass"] or intent in _NEEDS_WEB_INTENTS)
+        and is_fresh
+    )
+    # Also escalate if we have explicit expensive_calls selected AND gate failed
+    if not needs_web and expensive_calls and not gate["pass"]:
+        needs_web = True
+
+    if needs_web:
         remaining = _remaining(t0, total_budget, margin=8)
         if remaining > 5:
-            log.info("Quality gate failed + fresh query — escalating to web_search (%.0fs left)", remaining)
+            log.info(
+                "Phase B: escalating to web_search (gate=%s, fresh=%s, %.0fs left)",
+                gate["pass"], is_fresh, remaining,
+            )
             search_result = await _execute_single_tool(
                 "web_search", {"query": query}, min(remaining, float(settings.mcp_tool_timeout_s)),
             )
@@ -435,13 +537,13 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
                 results.append(search_result)
                 assembled_context = context_assembler.assemble(results)
                 gate = context_assembler.quality_gate(results)
+                _gemini_calls += 1  # web_search uses Gemini internally
         else:
-            log.info("Quality gate failed but only %.0fs left — skipping web_search", remaining)
+            log.info("Phase B: skipping web_search — only %.0fs left", remaining)
 
-    # Step 7: Single LLM call with assembled context (deadline-aware)
-    tools_used = [r.tool_name for r in results if r.ok]
-    data_sources = list({r.source for r in results if r.ok})
-
+    # ══════════════════════════════════════════════════════════════════════
+    # PHASE C: Single LLM call with assembled context (deadline-aware)
+    # ══════════════════════════════════════════════════════════════════════
     llm_budget = _remaining(t0, total_budget, margin=2)
     if llm_budget < 3:
         log.warning("Only %.1fs left for LLM call — returning tool context directly", llm_budget)
@@ -449,11 +551,17 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
     else:
         log.info("LLM call budget: %.1fs (elapsed: %.1fs)", llm_budget, time.monotonic() - t0)
         answer = await _llm_call(query, assembled_context, intent, context, timeout=llm_budget)
+        _gemini_calls += 1
+
+    log.info(
+        "Pipeline complete: intent=%s, gemini_calls=%d, elapsed=%.1fs",
+        intent, _gemini_calls, time.monotonic() - t0,
+    )
 
     elapsed = int((time.monotonic() - t0) * 1000)
-
-    # Extract players for response
     players = _extract_players(query)
+    tools_used = [r.tool_name for r in results if r.ok]
+    data_sources = list({r.source for r in results if r.ok})
 
     return AskResult(
         answer=answer,
@@ -463,6 +571,25 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
         data_sources=data_sources,
         latency_ms=elapsed,
         tools_used=tools_used,
+    )
+
+
+def _build_result(
+    results: list[ToolResult],
+    query: str,
+    intent: str,
+    assembled_context: str,
+    t0: float,
+) -> AskResult:
+    """Helper to build an AskResult from tool results (RAG fast-path)."""
+    return AskResult(
+        answer=assembled_context,
+        intent=intent,
+        players=_extract_players(query),
+        mode="mcp",
+        data_sources=list({r.source for r in results if r.ok}),
+        latency_ms=int((time.monotonic() - t0) * 1000),
+        tools_used=[r.tool_name for r in results if r.ok],
     )
 
 
@@ -596,6 +723,16 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
     """
     import time as _time
 
+    from backend.src.services.circuit_breaker import gemini_breaker
+
+    # Circuit breaker — don't even try if quota is exhausted
+    if gemini_breaker.is_open:
+        gemini_breaker.record_skip()
+        return (
+            "⚠️ The AI service has reached its daily usage limit. "
+            "Please try again later or ask a simpler question."
+        )
+
     _deadline = _time.monotonic() + timeout
 
     from backend.src.services.llm_settings import GEMINI_API_KEY
@@ -669,15 +806,13 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
                 err = str(e)
                 remaining = _deadline - _time.monotonic()
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                    # Quota exhaustion — all models share the same key, fail fast.
-                    # RESOURCE_EXHAUSTED alone is enough; don't require "quota" keyword.
                     if "RESOURCE_EXHAUSTED" in err or "quota" in err.lower() or "exceeded" in err.lower():
-                        log.warning("Gemini quota exhausted — aborting all retries")
+                        log.warning("Gemini quota exhausted — tripping circuit breaker")
+                        gemini_breaker.trip(reason=err[:120])
                         return (
                             "⚠️ The AI service has reached its daily usage limit. "
                             "Please try again later or ask a simpler question."
                         )
-                    # Transient rate limit — brief pause then retry
                     if attempt == 0 and remaining > 6:
                         _time.sleep(min(3, remaining - 3))
                         continue

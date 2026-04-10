@@ -188,3 +188,22 @@ def mcp_tools(key: Optional[str] = Query(default=None)) -> dict:
         }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Circuit breaker status ───────────────────────────────────────────────────
+
+@router.get("/circuit-breaker")
+def circuit_breaker_status(key: Optional[str] = Query(default=None)) -> dict:
+    """Return Gemini circuit breaker state. Requires ?key=ADMIN_KEY."""
+    _require_key(key)
+    from ..services.circuit_breaker import gemini_breaker
+    return gemini_breaker.status()
+
+
+@router.post("/circuit-breaker/reset")
+def circuit_breaker_reset(key: Optional[str] = Query(default=None)) -> dict:
+    """Manually close the circuit breaker. Requires ?key=ADMIN_KEY."""
+    _require_key(key)
+    from ..services.circuit_breaker import gemini_breaker
+    gemini_breaker._tripped_at = 0
+    return {"message": "Circuit breaker manually reset.", **gemini_breaker.status()}
