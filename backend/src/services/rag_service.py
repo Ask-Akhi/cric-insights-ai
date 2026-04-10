@@ -119,7 +119,8 @@ _TEAM_ALIASES: Dict[str, str] = {
     # IPL teams
     "mumbai indians": "Mumbai Indians", "mi": "Mumbai Indians",
     "chennai super kings": "Chennai Super Kings", "csk": "Chennai Super Kings",
-    "royal challengers bangalore": "Royal Challengers Bangalore", "rcb": "Royal Challengers Bangalore",
+    "royal challengers bangalore": "Royal Challengers Bengaluru", "rcb": "Royal Challengers Bengaluru",
+    "royal challengers bengaluru": "Royal Challengers Bengaluru",
     "kolkata knight riders": "Kolkata Knight Riders", "kkr": "Kolkata Knight Riders",
     "sunrisers hyderabad": "Sunrisers Hyderabad", "srh": "Sunrisers Hyderabad",
     "rajasthan royals": "Rajasthan Royals", "rr": "Rajasthan Royals",
@@ -303,22 +304,27 @@ def fetch_h2h_context(team_a: str, team_b: str, fmt: str = "T20") -> str:
     """Fetch and format head-to-head history between two teams."""
     try:
         import polars as pl
+        from ..core.config import expand_team_names
         provider = _get_provider()
         df = provider.get_head_to_head(team_a, team_b, fmt=fmt)
         if df.is_empty():
             return ""
 
+        # Expand team names so winner/batting_team matching works across renames
+        names_a = expand_team_names(team_a)
+        names_b = expand_team_names(team_b)
+
         total = df.select(pl.col("match_id").n_unique()).item()
-        wins_a = df.filter(pl.col("winner") == team_a).select(pl.col("match_id").n_unique()).item()
-        wins_b = df.filter(pl.col("winner") == team_b).select(pl.col("match_id").n_unique()).item()
+        wins_a = df.filter(pl.col("winner").is_in(names_a)).select(pl.col("match_id").n_unique()).item()
+        wins_b = df.filter(pl.col("winner").is_in(names_b)).select(pl.col("match_id").n_unique()).item()
 
         top_bat_a = (
-            df.filter(pl.col("batting_team") == team_a)
+            df.filter(pl.col("batting_team").is_in(names_a))
             .group_by("batter").agg(pl.col("runs_off_bat").sum().alias("runs"))
             .sort("runs", descending=True).head(3).to_dicts()
         )
         top_bat_b = (
-            df.filter(pl.col("batting_team") == team_b)
+            df.filter(pl.col("batting_team").is_in(names_b))
             .group_by("batter").agg(pl.col("runs_off_bat").sum().alias("runs"))
             .sort("runs", descending=True).head(3).to_dicts()
         )
@@ -353,9 +359,11 @@ def _get_team_recent_players(team: str, fmt: str = "T20", limit: int = 11) -> Li
 
         # Find last 5 match_ids where this team batted
         team_lower = team.lower()
+        from ..core.config import FORMAT_EXPANSION
+        fmt_allowed = FORMAT_EXPANSION.get(fmt, [fmt])
         matches = (
             lf.filter(pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
-            .filter(pl.col("format") == fmt)
+            .filter(pl.col("format").is_in(fmt_allowed))
             .select(["match_id", "start_date"])
             .unique(subset=["match_id"])
             .sort("start_date", descending=True)

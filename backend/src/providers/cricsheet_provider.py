@@ -233,22 +233,31 @@ class CricsheetProvider(BaseDataProvider):
             return pl.DataFrame()
         q = lf.filter(pl.col("venue").str.to_lowercase().str.contains(venue.lower()))
         if fmt:
-            q = q.filter(pl.col("format") == fmt)
+            from ..core.config import FORMAT_EXPANSION
+            allowed = FORMAT_EXPANSION.get(fmt, [fmt])
+            q = q.filter(pl.col("format").is_in(allowed))
         return q.collect()
 
     def get_head_to_head(self, team_a: str, team_b: str,
                          fmt: str | None = None) -> pl.DataFrame:
-        """Matches where both team_a and team_b appear."""
+        """Matches where both team_a and team_b appear (handles renamed teams)."""
         if not self.loaded:
             self.load()
         lf = self.datasets.get("balls")
         if lf is None:
             return pl.DataFrame()
-        q = lf.filter(
-            (pl.col("batting_team") == team_a) | (pl.col("batting_team") == team_b)
-        )
+
+        # Expand team names to include historical variants (e.g. RCB Bangalore/Bengaluru)
+        from ..core.config import expand_team_names
+        names_a = expand_team_names(team_a)
+        names_b = expand_team_names(team_b)
+        all_names = list(set(names_a + names_b))
+
+        q = lf.filter(pl.col("batting_team").is_in(all_names))
         if fmt:
-            q = q.filter(pl.col("format") == fmt)
+            from ..core.config import FORMAT_EXPANSION
+            allowed = FORMAT_EXPANSION.get(fmt, [fmt])
+            q = q.filter(pl.col("format").is_in(allowed))
         df = q.collect()
         if df.is_empty():
             return df
@@ -256,8 +265,14 @@ class CricsheetProvider(BaseDataProvider):
             df.group_by("match_id")
             .agg(pl.col("batting_team").unique().alias("teams"))
         )
-        both = match_teams.filter(
-            pl.col("teams").list.contains(team_a)
-            & pl.col("teams").list.contains(team_b)
-        ).get_column("match_id")
-        return df.filter(pl.col("match_id").is_in(both))
+        # A match counts if it has at least one name variant from each side
+        both_ids = []
+        for row in match_teams.iter_rows(named=True):
+            teams_in_match = set(row["teams"])
+            has_a = bool(teams_in_match & set(names_a))
+            has_b = bool(teams_in_match & set(names_b))
+            if has_a and has_b:
+                both_ids.append(row["match_id"])
+        if not both_ids:
+            return pl.DataFrame()
+        return df.filter(pl.col("match_id").is_in(both_ids))

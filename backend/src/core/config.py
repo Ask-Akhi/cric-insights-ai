@@ -77,3 +77,37 @@ class Settings:
 
 
 settings = Settings()
+
+# ── Shared format expansion lists ─────────────────────────────────────────────
+# Cricsheet stores T20 franchise leagues under their league name (IPL, BBL, etc.)
+# rather than "T20". Any code that filters by "T20" must include these.
+T20_FORMATS: list[str] = [
+    "T20", "T20I", "IT20",  # international / generic
+    "IPL", "BBL", "CPL", "PSL", "BPL", "LPL",  # franchise leagues
+    "MLC", "SA20", "ILT20", "WPL",  # newer leagues
+]
+
+FORMAT_EXPANSION: dict[str, list[str]] = {
+    "T20":  T20_FORMATS,
+    "ODI":  ["ODI", "ODI Women"],
+    "Test": ["Test", "Test Women"],
+}
+
+# ── Team name aliases ─────────────────────────────────────────────────────────
+# Cricsheet data uses historical team names; franchises rename over time.
+# Maps a canonical name → all variants that appear in the data.
+TEAM_NAME_VARIANTS: dict[str, list[str]] = {
+    "Royal Challengers Bengaluru": ["Royal Challengers Bengaluru", "Royal Challengers Bangalore"],
+    "Royal Challengers Bangalore": ["Royal Challengers Bengaluru", "Royal Challengers Bangalore"],
+    "Delhi Capitals": ["Delhi Capitals", "Delhi Daredevils"],
+    "Delhi Daredevils": ["Delhi Capitals", "Delhi Daredevils"],
+    "Punjab Kings": ["Punjab Kings", "Kings XI Punjab"],
+    "Kings XI Punjab": ["Punjab Kings", "Kings XI Punjab"],
+    "Rising Pune Supergiant": ["Rising Pune Supergiant", "Rising Pune Supergiants"],
+    "Rising Pune Supergiants": ["Rising Pune Supergiant", "Rising Pune Supergiants"],
+}
+
+
+def expand_team_names(team: str) -> list[str]:
+    """Return all Cricsheet variants for a team name, or [team] if no aliases."""
+    return TEAM_NAME_VARIANTS.get(team, [team])

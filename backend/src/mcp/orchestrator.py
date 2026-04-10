@@ -447,7 +447,8 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
         word_count = len(query.split())
         if word_count >= settings.mcp_llm_fallback_min_words and intent == "general":
             log.info("No regex tools matched — escalating to LLM-free general answer")
-        else:            log.info("No tools matched for short/non-general query — proceeding with empty context")
+        else:
+            log.info("No tools matched for short/non-general query — proceeding with empty context")
 
     # ══════════════════════════════════════════════════════════════════════
     # PHASE A: Execute LOCAL + LIVE tools (free/cheap — no Gemini cost)

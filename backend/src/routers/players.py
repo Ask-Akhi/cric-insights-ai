@@ -271,17 +271,12 @@ def get_player_stats(player_name: str, format: str | None = Query(None)):
                 )
 
     if df.is_empty():
-        return {"player": player_name, "found": False, "batter": None, "bowler": None}
-
-    # Optionally narrow to a specific format.
-    # T20 → matches T20 and T20I; ODI → ODI and ODI Women; Test → Test only.
+        return {"player": player_name, "found": False, "batter": None, "bowler": None}    # Optionally narrow to a specific format.
+    # T20 includes all T20 franchise leagues (IPL, BBL, CPL, PSL, etc.)
+    # because Cricsheet stores them under their league name, not "T20".
     if format:
-        fmt_map: dict[str, list[str]] = {
-            "T20":  ["T20", "T20I"],
-            "ODI":  ["ODI", "ODI Women"],
-            "Test": ["Test", "Test Women"],
-        }
-        allowed = fmt_map.get(format, [format])
+        from ..core.config import FORMAT_EXPANSION
+        allowed = FORMAT_EXPANSION.get(format, [format])
         df = df.filter(pl.col("format").is_in(allowed))
         if df.is_empty():
             return {"player": resolved_name, "found": True, "batter": None, "bowler": None, "format": format}
