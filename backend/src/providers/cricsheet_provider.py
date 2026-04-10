@@ -17,9 +17,10 @@ PARQUET_DIR = os.path.join(DATA_DIR, "parquet")
 
 # Global lock so only one thread downloads/parses at a time
 _DOWNLOAD_LOCK = threading.Lock()
-# Set to True once a background download thread has been fired — prevents
-# duplicate threads being spawned on concurrent first requests.
-_DOWNLOAD_STARTED = False
+# Track download state: None = not started, True = succeeded, False = failed
+_DOWNLOAD_RESULT: bool | None = None
+# Set to True while a download thread is running — prevents duplicate threads
+_DOWNLOAD_RUNNING = False
 
 # Columns that must exist in every loaded LazyFrame
 REQUIRED_COLS = [
@@ -51,17 +52,31 @@ class CricsheetProvider(BaseDataProvider):
         Returns immediately — the health endpoint is NEVER blocked.
         The download runs in the background; the first few API calls that need
         data will get empty results until it completes (~2-4 min on Railway).
+
+        Improvements over the original:
+        - Allows retry if a previous download FAILED (not just "started")
+        - Tracks success/failure state for health endpoint visibility
         """
-        global _DOWNLOAD_STARTED
+        global _DOWNLOAD_RUNNING, _DOWNLOAD_RESULT
         if self._collect_parquet_paths():
-            return  # already have data — fast path, no lock needed
+            _DOWNLOAD_RESULT = True  # data exists (baked at build or prior download)
+            return
 
         with _DOWNLOAD_LOCK:
-            if self._collect_parquet_paths() or _DOWNLOAD_STARTED:
-                return  # another thread beat us here
-            _DOWNLOAD_STARTED = True
+            # Re-check after lock acquisition
+            if self._collect_parquet_paths():
+                _DOWNLOAD_RESULT = True
+                return
+            # Don't start a new thread if one is already running
+            if _DOWNLOAD_RUNNING:
+                return
+            # If a previous download failed, allow retry
+            if _DOWNLOAD_RESULT is True:
+                return
+            _DOWNLOAD_RUNNING = True
 
         def _run_download():
+            global _DOWNLOAD_RUNNING, _DOWNLOAD_RESULT
             log.info("📥 No Cricsheet data found — downloading male dataset in background …")
             try:
                 repo_root = os.path.abspath(
@@ -76,10 +91,15 @@ class CricsheetProvider(BaseDataProvider):
                 )
                 if result.returncode == 0:
                     log.info("✅ Cricsheet download complete — data now available")
+                    _DOWNLOAD_RESULT = True
                 else:
                     log.warning("⚠️  Cricsheet download failed:\n%s", result.stderr[-500:])
+                    _DOWNLOAD_RESULT = False
             except Exception as e:
                 log.warning("⚠️  Cricsheet download error: %s", e)
+                _DOWNLOAD_RESULT = False
+            finally:
+                _DOWNLOAD_RUNNING = False
 
         t = threading.Thread(target=_run_download, daemon=True, name="cricsheet-download")
         t.start()
@@ -125,6 +145,25 @@ class CricsheetProvider(BaseDataProvider):
         self.loaded = True
 
     # ── Public API ──────────────────────────────────────────────────────────
+
+    @property
+    def has_data(self) -> bool:
+        """True when parquet data is loaded and available for queries."""
+        if not self.loaded:
+            return False
+        return "balls" in self.datasets
+
+    @staticmethod
+    def data_status() -> dict:
+        """Return data availability status for health/admin endpoints."""
+        return {
+            "download_running": _DOWNLOAD_RUNNING,
+            "download_result": _DOWNLOAD_RESULT,
+            "parquet_dir": PARQUET_DIR,
+            "parquet_files_exist": bool(
+                any(f.endswith(".parquet") for _, _, files in os.walk(PARQUET_DIR) for f in files)
+            ) if os.path.isdir(PARQUET_DIR) else False,
+        }
 
     def get_matches(self, formats: Iterable[str] | None = None):
         if not self.loaded:

@@ -403,6 +403,20 @@ _EXPENSIVE_TOOLS = frozenset({
 })
 
 
+def _is_cricsheet_ready() -> bool:
+    """Check if Cricsheet parquet data is loaded and available.
+
+    This is used to short-circuit local tool calls when data hasn't been
+    downloaded yet — avoids wasting 10s per tool on empty results.
+    """
+    try:
+        from ..services.rag_service import _get_provider
+        provider = _get_provider()
+        return provider.has_data
+    except Exception:
+        return False
+
+
 async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
     """
     Full MCP pipeline — 2-phase waterfall:
@@ -433,15 +447,25 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
         word_count = len(query.split())
         if word_count >= settings.mcp_llm_fallback_min_words and intent == "general":
             log.info("No regex tools matched — escalating to LLM-free general answer")
-        else:
-            log.info("No tools matched for short/non-general query — proceeding with empty context")
+        else:            log.info("No tools matched for short/non-general query — proceeding with empty context")
 
     # ══════════════════════════════════════════════════════════════════════
     # PHASE A: Execute LOCAL + LIVE tools (free/cheap — no Gemini cost)
     # ══════════════════════════════════════════════════════════════════════
+
+    # Data-readiness check: skip LOCAL tools when Cricsheet data isn't loaded.
+    # This prevents wasting 10s on tool timeouts that will return empty data,
+    # letting the pipeline fall through to Gemini immediately.
+    cricsheet_ready = _is_cricsheet_ready()
     local_calls = [t for t in tool_calls if t["tool_name"] in _LOCAL_TOOLS]
     live_calls = [t for t in tool_calls if t["tool_name"] in _LIVE_TOOLS]
     expensive_calls = [t for t in tool_calls if t["tool_name"] in _EXPENSIVE_TOOLS]
+    if not cricsheet_ready and local_calls:
+        log.warning(
+            "Cricsheet data not loaded — skipping %d local tools: %s",
+            len(local_calls), [t["tool_name"] for t in local_calls],
+        )
+        local_calls = []
     phase_a_calls = local_calls + live_calls
 
     results: list[ToolResult] = []

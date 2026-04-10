@@ -126,10 +126,21 @@ try:
             detail=f"Final FROM is: {from_lines[-1]} -- npm won't exist in a python image"
         )
 
+    # Cricsheet data should be baked at build time for reliable data availability.
+    # Railway build containers have ~8 GB RAM — the ~80 MB download + parse is safe.
+    # Only the ~30 MB parquet output remains in the final image (raw CSVs are deleted).
     check(
-        "No unconditional Cricsheet download at build",
-        "--download" not in dockerfile or "BUILD_CRICSHEET" in dockerfile,
-        detail="Unconditional --download causes 800 MB OOM on Railway Hobby (512 MB RAM)"
+        "Cricsheet data baked at build time",
+        "--download" in dockerfile,
+        detail="Cricsheet data must be downloaded at build time to avoid empty-data issues at runtime"
+    )
+
+    # Verify raw CSVs are cleaned up to keep image lean
+    check(
+        "Raw CSVs cleaned up after parse",
+        "rm -rf" in dockerfile and "raw" in dockerfile,
+        detail="Raw CSVs (~400 MB) must be deleted after parse to keep the Docker image lean",
+        fatal=False
     )
 
     check(

@@ -46,9 +46,11 @@ def test_dockerfile_final_stage_python():
              if l.strip().upper().startswith("FROM") and " AS " not in l.upper()]
     assert froms and "python" in froms[-1].lower()
 
-def test_dockerfile_no_oom_download():
+def test_dockerfile_cricsheet_baked_at_build():
+    """Cricsheet data should be downloaded at Docker build time and raw files cleaned up."""
     df = _dockerfile()
-    assert "--download" not in df or "BUILD_CRICSHEET" in df
+    assert "--download" in df, "Cricsheet download should run at build time"
+    assert "rm -rf" in df and "raw" in df, "Raw CSVs should be cleaned up after parse"
 
 def test_dockerfile_polars_threads():
     assert "POLARS_MAX_THREADS" in _dockerfile()

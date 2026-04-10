@@ -56,11 +56,27 @@ app.add_middleware(NoCacheHTMLMiddleware)
 @app.get("/api/health")
 @app.get("/health")
 def health():
+    # Cricsheet data status — critical for diagnosing "empty data" issues
+    try:
+        from .providers.cricsheet_provider import CricsheetProvider
+        data_status = CricsheetProvider.data_status()
+    except Exception:
+        data_status = {"error": "could not check"}
+
+    # Circuit breaker status — shows if Gemini quota is exhausted
+    try:
+        from .services.circuit_breaker import gemini_breaker
+        breaker_status = gemini_breaker.status()
+    except Exception:
+        breaker_status = {"error": "could not check"}
+
     return {
         "status": "ok",
         "uptime_seconds": round(time.time() - _START_TIME, 1),
         "port": os.environ.get("PORT", "8080"),
         "frontend_ok": os.path.isdir(DIST_DIR),
+        "cricsheet_data": data_status,
+        "circuit_breaker": breaker_status,
     }
 
 # ── Routers — let import errors surface so Railway logs show the real cause ───
