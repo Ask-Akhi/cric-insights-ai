@@ -7,12 +7,13 @@ Catches config bugs that pytest (unit/integration tests) will never see:
   3. requirements  -- no dev-only packages in prod
   4. Frontend build -- vite build must succeed (catches TS/JSX errors)
   5. Backend import -- main.py must import without crashing
-  6. pytest gate   -- deployment config tests (file-read only, ~0.1s)
+  6. AST parse + collapsed-line scan -- catches silent syntax corruption
+  7. pytest gate   -- deployment config tests (file-read only, ~0.1s)
 
 Exit 0 = safe to push.  Exit 1 = blocked.
 """
 from __future__ import annotations
-import sys, os, io, re, subprocess, tomllib
+import sys, os, io, re, ast, subprocess, tomllib
 from pathlib import Path
 
 # Force UTF-8 stdout so ANSI works on Windows cp1252 consoles
@@ -279,8 +280,63 @@ except subprocess.TimeoutExpired:
     check("Backend import (timeout)", False, detail="Import hung for >30s")
 
 
-# -- 6. pytest gate -----------------------------------------------------------
-print("\n[6/6] pytest -- deployment config tests (file-read only, ~0.1s)")
+# -- 6. AST parse + collapsed-line scan ----------------------------------------
+print("\n[6/7] Backend -- AST parse + collapsed-line scan")
+_BACKEND_PY_FILES = [
+    "backend/src/mcp/servers/cricsheet_server.py",
+    "backend/src/mcp/orchestrator.py",
+    "backend/src/core/config.py",
+    "backend/src/main.py",
+    "backend/src/providers/cricsheet_provider.py",
+    "backend/src/services/rag_service.py",
+    "backend/src/routers/players.py",
+    "backend/src/routers/ask.py",
+    "backend/src/routers/admin.py",
+    "backend/src/services/circuit_breaker.py",
+    "backend/src/services/data_refresh_scheduler.py",
+]
+_COLLAPSE_RE = re.compile(
+    r'[)\"\'\}\]]\s{4,}'
+    r'(def |class |try:|except |else:|elif |return |if |for |with |import |from )'
+)
+ast_ok = True
+for fpath in _BACKEND_PY_FILES:
+    full = ROOT / fpath
+    if not full.exists():
+        continue
+    src = full.read_text(encoding="utf-8")
+    # AST parse
+    try:
+        ast.parse(src)
+    except SyntaxError as e:
+        check(
+            f"AST parse {fpath}",
+            False,
+            detail=f"SyntaxError at line {e.lineno}: {e.msg}",
+        )
+        ast_ok = False
+        continue
+    # Collapsed-line scan
+    collapsed = []
+    for n, line in enumerate(src.splitlines(), 1):
+        if _COLLAPSE_RE.search(line):
+            collapsed.append(f"line {n}: {line.rstrip()[:100]}")
+    if collapsed:
+        check(
+            f"No collapsed lines in {fpath}",
+            False,
+            detail="\n         ".join(collapsed),
+        )
+        ast_ok = False
+    else:
+        check(f"AST + collapse scan {fpath}", True)
+
+if ast_ok:
+    print("  All backend files pass AST parse + collapsed-line scan.")
+
+
+# -- 7. pytest gate -----------------------------------------------------------
+print("\n[7/7] pytest -- deployment config tests (file-read only, ~0.1s)")
 try:
     result = subprocess.run(
         [python_exe, "-m", "pytest",

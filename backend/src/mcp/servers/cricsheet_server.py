@@ -338,6 +338,209 @@ def team_matchup(team_a: str, team_b: str, format: str = "T20") -> str:
         return f"Error fetching team matchup: {e}"
 
 
+@_tool(    name="top_players",
+    description=(
+        "Rank the top N cricket players by a batting or bowling metric from Cricsheet data. "
+        "Use this for queries like 'top 5 T20 batters by strike rate', "
+        "'best bowlers by economy in ODI', 'most runs in IPL', etc. "
+        "Metrics: batting — strike_rate, runs, average, sixes, fours; "
+        "bowling — economy, wickets, average, strike_rate."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "metric":    {"type": "string",
+                          "description": "Metric to rank by: strike_rate | runs | average | sixes | fours | economy | wickets",
+                          "enum": ["strike_rate", "runs", "average", "sixes", "fours", "economy", "wickets"]},
+            "role":      {"type": "string", "enum": ["batting", "bowling"], "default": "batting"},
+            "format":    {"type": "string", "enum": ["T20", "ODI", "Test", "All"], "default": "T20"},
+            "top_n":     {"type": "integer", "default": 10, "minimum": 3, "maximum": 25},
+            "min_innings": {"type": "integer", "default": 30,
+                            "description": "Minimum innings/matches to qualify (filters out small samples)"},
+        },
+        "required": ["metric"],
+    },
+)
+def top_players(
+    metric: str = "strike_rate",
+    role: str = "batting",
+    format: str = "T20",
+    top_n: int = 10,    min_innings: int = 30,
+) -> str:
+    """Rank players by a metric directly from Cricsheet ball-by-ball data."""
+    try:
+        import polars as pl
+        from backend.src.services.rag_service import _get_provider
+        from backend.src.core.config import FORMAT_EXPANSION, MAJOR_T20_FORMATS
+
+        provider = _get_provider()
+        if not provider.has_data:
+            return "No Cricsheet data available."
+
+        lf = provider.datasets.get("balls")
+        if lf is None:
+            return "No data available."
+
+        # Format filter — for T20 rankings use MAJOR_T20_FORMATS to exclude
+        # Associate-level T20s ("T20" format code) where bowlers post 3.x economies
+        # against weaker batters, polluting the leaderboard with unknown names.
+        if format != "All":
+            if format == "T20":
+                allowed = MAJOR_T20_FORMATS
+            else:
+                allowed = FORMAT_EXPANSION.get(format, [format])
+            lf = lf.filter(pl.col("format").is_in(allowed))
+
+        if role == "batting":
+            # Aggregate per batter — apply min_innings AND min_runs to avoid
+            # obscure players with tiny samples dominating strike-rate rankings.
+            MIN_RUNS = 500  # must have scored at least 500 runs to qualify
+            bat = (
+                lf.group_by("batter")
+                .agg([
+                    pl.col("match_id").n_unique().alias("innings"),
+                    pl.col("runs_off_bat").sum().alias("runs"),
+                    pl.col("runs_off_bat").count().alias("balls"),
+                    pl.col("runs_off_bat").filter(pl.col("runs_off_bat") == 4).count().alias("fours"),
+                    pl.col("runs_off_bat").filter(pl.col("runs_off_bat") == 6).count().alias("sixes"),
+                    pl.col("player_dismissed").is_not_null().sum().alias("dismissals"),
+                ])
+                .filter(
+                    (pl.col("innings") >= min_innings) &
+                    (pl.col("runs") >= MIN_RUNS)
+                )
+                .with_columns([
+                    (pl.col("runs") / pl.col("balls") * 100).round(1).alias("strike_rate"),
+                    (pl.col("runs") / (pl.col("dismissals") + 0.001)).round(1).alias("average"),
+                ])
+                .collect()
+            )
+
+            sort_col = {
+                "strike_rate": "strike_rate",
+                "runs": "runs",
+                "average": "average",
+                "sixes": "sixes",
+                "fours": "fours",
+            }.get(metric, "strike_rate")
+
+            top = bat.sort(sort_col, descending=True).head(top_n)
+
+            metric_label = {
+                "strike_rate": "SR", "runs": "Runs",
+                "average": "Avg", "sixes": "6s", "fours": "4s",
+            }.get(metric, metric)
+
+            # Build header — skip metric col if it duplicates a fixed column
+            fixed_cols = ["Runs", "Innings", "SR", "Avg"]
+            show_metric_col = metric_label not in fixed_cols
+            if show_metric_col:
+                header = f"| # | Player | {metric_label} | Runs | Inn | SR | Avg |"
+                sep    = f"|---|--------|{'-'*(len(metric_label)+2)}|------|-----|----|----|"
+            else:
+                header = "| # | Player | Runs | Inn | SR | Avg |"
+                sep    = "|---|--------|------|-----|----|----|"
+
+            lines = [
+                f"## 🏏 Top {top_n} {format} Batters by {metric_label}\n",
+                header, sep,
+            ]
+            for i, row in enumerate(top.iter_rows(named=True), 1):
+                if show_metric_col:
+                    val = row[sort_col]
+                    lines.append(
+                        f"| {i} | {row['batter']} | **{val}** | "
+                        f"{row['runs']} | {row['innings']} | "
+                        f"{row['strike_rate']} | {row['average']} |"
+                    )
+                else:
+                    # metric IS one of the fixed columns — bold it inline
+                    runs_s = f"**{row['runs']}**" if metric_label == "Runs" else str(row['runs'])
+                    inn_s  = str(row['innings'])
+                    sr_s   = f"**{row['strike_rate']}**" if metric_label == "SR" else str(row['strike_rate'])
+                    avg_s  = f"**{row['average']}**" if metric_label == "Avg" else str(row['average'])
+                    lines.append(f"| {i} | {row['batter']} | {runs_s} | {inn_s} | {sr_s} | {avg_s} |")
+
+            lines.append(f"\n*Min {min_innings} innings · {MIN_RUNS}+ runs. Source: Cricsheet.*")
+            return "\n".join(lines)
+
+        else:  # bowling
+            MIN_WICKETS = 75   # must have 75+ wickets (filters Associates/low-volume bowlers)
+            MIN_BALLS   = 900  # must have bowled 150+ overs in major T20 cricket
+            bowl = (
+                lf.filter(pl.col("bowler").is_not_null())
+                .group_by("bowler")
+                .agg([
+                    pl.col("match_id").n_unique().alias("matches"),
+                    pl.col("runs_off_bat").sum().alias("runs_conceded"),
+                    (pl.col("wides").is_null() | (pl.col("wides") == 0)).sum().alias("legal_balls"),
+                    pl.col("player_dismissed").is_not_null().sum().alias("wickets"),
+                ])
+                .filter(
+                    (pl.col("matches") >= min_innings) &
+                    (pl.col("wickets") >= MIN_WICKETS) &
+                    (pl.col("legal_balls") >= MIN_BALLS)
+                )
+                .with_columns([
+                    (pl.col("runs_conceded") / (pl.col("legal_balls") / 6 + 0.001)).round(2).alias("economy"),
+                    (pl.col("runs_conceded") / (pl.col("wickets") + 0.001)).round(1).alias("average"),
+                    (pl.col("legal_balls") / (pl.col("wickets") + 0.001)).round(1).alias("strike_rate"),
+                ])
+                .collect()
+            )
+
+            sort_col = {
+                "economy": "economy",
+                "wickets": "wickets",
+                "average": "average",
+                "strike_rate": "strike_rate",
+            }.get(metric, "economy")
+            # For economy/average/SR, lower is better
+            descending = metric in ("wickets",)
+
+            top = bowl.sort(sort_col, descending=descending).head(top_n)
+            metric_label = {
+                "economy": "Econ", "wickets": "Wkts",
+                "average": "Avg", "strike_rate": "SR",
+            }.get(metric, metric)
+
+            # Build header — skip metric col if it duplicates a fixed column
+            fixed_cols_b = ["Wkts", "Matches", "Econ", "Avg"]
+            show_metric_col = metric_label not in fixed_cols_b
+            if show_metric_col:
+                header = f"| # | Player | {metric_label} | Wkts | Matches | Econ | Avg |"
+                sep    = f"|---|--------|{'-'*(len(metric_label)+2)}|------|---------|------|-----|"
+            else:
+                header = "| # | Player | Wkts | Matches | Econ | Avg |"
+                sep    = "|---|--------|------|---------|------|-----|"
+
+            lines = [
+                f"## 🎳 Top {top_n} {format} Bowlers by {metric_label}\n",
+                header, sep,
+            ]
+            for i, row in enumerate(top.iter_rows(named=True), 1):
+                if show_metric_col:
+                    val = row[sort_col]
+                    lines.append(
+                        f"| {i} | {row['bowler']} | **{val}** | "
+                        f"{row['wickets']} | {row['matches']} | "
+                        f"{row['economy']} | {row['average']} |"
+                    )
+                else:
+                    wkts_s = f"**{row['wickets']}**" if metric_label == "Wkts" else str(row['wickets'])
+                    mat_s  = str(row['matches'])
+                    econ_s = f"**{row['economy']}**" if metric_label == "Econ" else str(row['economy'])
+                    avg_s  = f"**{row['average']}**" if metric_label == "Avg" else str(row['average'])
+                    lines.append(f"| {i} | {row['bowler']} | {wkts_s} | {mat_s} | {econ_s} | {avg_s} |")
+
+            lines.append(f"\n*Min {min_innings} matches · {MIN_WICKETS}+ wkts · {MIN_BALLS//6}+ overs · major T20 formats only. Source: Cricsheet.*")
+            return "\n".join(lines)
+
+    except Exception as e:
+        log.error("top_players failed: %s", e)
+        return f"Error fetching top players: {e}"
+
+
 def list_tools() -> list[dict[str, Any]]:
     return [
         {"name": t["name"], "description": t["description"], "inputSchema": t["parameters"]}

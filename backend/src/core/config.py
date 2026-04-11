@@ -63,12 +63,12 @@ class Settings:
     )
     mcp_tool_timeout_s: int = 10
     mcp_max_context_tokens: int = 6000
-    mcp_llm_fallback_min_words: int = 4  # min words before LLM tool-picker fires
-
-    # ── Admin ──────────────────────────────────────────────
+    mcp_llm_fallback_min_words: int = 4  # min words before LLM tool-picker fires    # ── Admin ──────────────────────────────────────────────
     admin_key: str = field(
         default_factory=lambda: os.getenv("ADMIN_KEY", "")
-    )    # ── Data ───────────────────────────────────────────────
+    )
+
+    # ── Data ───────────────────────────────────────────────
     cricsheet_data_dir: str = field(
         default_factory=lambda: os.getenv("CRICSHEET_DATA_DIR", "./data/cricsheet")
     )
@@ -86,6 +86,17 @@ T20_FORMATS: list[str] = [
     "T20", "T20I", "IT20",  # international / generic
     "IPL", "BBL", "CPL", "PSL", "BPL", "LPL",  # franchise leagues
     "MLC", "SA20", "ILT20", "WPL",  # newer leagues
+]
+
+# Major T20 formats only — used for ranking queries to exclude Associate-level
+# T20s ("T20" format code) where unrepresentative stats (e.g. 3.2 economy)
+# come from bowling against weak Associate batting line-ups.
+# "IT20" = Full-member T20 internationals; "T20" = Associate T20Is (excluded).
+MAJOR_T20_FORMATS: list[str] = [
+    "IT20",  # full-member T20Is (India, Australia, England, Pakistan, etc.)
+    "IPL", "BBL", "CPL", "PSL", "LPL",  # elite franchise leagues
+    "MLC", "SA20", "ILT20", "WPL",      # newer top-tier leagues
+    # Note: BPL excluded — quality mixed; "T20" (Associate) deliberately excluded
 ]
 
 FORMAT_EXPANSION: dict[str, list[str]] = {

@@ -69,7 +69,9 @@ def health():
         from .providers.cricsheet_provider import CricsheetProvider
         data_status = CricsheetProvider.data_status()
     except Exception:
-        data_status = {"error": "could not check"}    # Circuit breaker status — shows if Gemini quota is exhausted
+        data_status = {"error": "could not check"}
+
+    # Circuit breaker status — shows if Gemini quota is exhausted
     try:
         from .services.circuit_breaker import gemini_breaker
         breaker_status = gemini_breaker.status()

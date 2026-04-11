@@ -69,9 +69,18 @@ TEAM_ALIASES: dict[str, str] = {
 # ── Intent patterns (regex — 0 tokens) ────────────────────────────────────────
 
 _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
-    # Live / time-sensitive
+    # Rankings — checked FIRST so "top 5 batters by SR right now" routes to
+    # top_players (stat query) rather than live intent (which also matches "right now").
+    ("ranking", re.compile(
+        r"\b(top\s*\d+|best\s*\d+|top\s+batters?|top\s+bowlers?|"
+        r"best\s+batters?|best\s+bowlers?|highest\s+strike\s+rate|"
+        r"most\s+runs|most\s+wickets|lowest\s+economy|"
+        r"rank(ing)?|leaderboard|who\s+(has|have)\s+the\s+(best|most|highest|lowest))\b", re.I
+    )),
+    # Live / time-sensitive — "right now" intentionally removed here because it
+    # appears in stat queries like "top 5 batters right now" and is handled above.
     ("live", re.compile(
-        r"\b(live\s*score|current\s*score|right\s*now|happening\s*now|"
+        r"\b(live\s*score|current\s*score|happening\s*now|"
         r"ongoing\s*match|today.s\s*match|score\s*update|what.s\s*the\s*score|"
         r"is\s*\w+\s*playing|who\s*is\s*batting|who\s*is\s*bowling)\b", re.I
     )),
@@ -121,10 +130,22 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
     )),
 ]
 
-# Freshness signals — if detected, prefer live tools
+# Freshness signals — only when asking about live/ongoing match events.
+# "right now", "currently", "latest" in a STATS context (e.g. "top 5 batters
+# by SR right now") do NOT mean live match — they mean "based on current data".
+# We tighten this to require a match/score/game context word nearby.
 _FRESHNESS_RE = re.compile(
-    r"\b(today|tonight|right\s*now|currently|ongoing|live|this\s*match|"
-    r"this\s*game|now\b|happening|latest|just\s*now|update)\b", re.I
+    r"\b(live\s*score|live\s*match|score\s*update|ongoing\s*match|"
+    r"today.s\s*(match|game)|tonight.s\s*(match|game)|"
+    r"happening\s*now|just\s*now|this\s*match|this\s*game|"
+    r"score\s*right\s*now|who\s*is\s*(batting|bowling))\b", re.I
+)
+
+# Weaker "current/latest" signal — only treated as fresh when the intent is
+# live/toss/recent, NOT when the intent is a stats query.
+_SOFT_FRESHNESS_RE = re.compile(
+    r"\b(today|tonight|right\s*now|currently|ongoing|live|"
+    r"now\b|happening|latest|just\s*now|update)\b", re.I
 )
 
 # Format extraction
@@ -151,8 +172,23 @@ def classify_intent(query: str) -> str:
 
 
 def _is_fresh_query(query: str) -> bool:
-    """Does the query mention live/current/today signals?"""
+    """True only for queries that genuinely need live match data.
+
+    Uses the strict regex — 'right now' / 'latest' in a stats context
+    (e.g. 'top batters by SR right now') does NOT count as fresh.
+    """
     return bool(_FRESHNESS_RE.search(query))
+
+
+def _is_soft_fresh(query: str, intent: str) -> bool:
+    """Soft freshness: 'today'/'latest'/etc. words, but only meaningful for
+    live/toss/recent intents. Pure stat intents are never soft-fresh.
+    """
+    _STAT_INTENTS = frozenset({"batting_stats", "bowling_stats", "head_to_head",
+                                "form", "venue", "team_matchup"})
+    if intent in _STAT_INTENTS:
+        return False
+    return bool(_SOFT_FRESHNESS_RE.search(query))
 
 
 def _extract_format(query: str) -> str:
@@ -253,7 +289,34 @@ def select_tools(query: str, intent: str) -> list[dict[str, Any]]:
         args = {"format": fmt, "limit": 10}
         if teams:
             args["team"] = teams[0]
-        tools.append({"tool_name": "recent_matches", "arguments": args})
+        tools.append({"tool_name": "recent_matches", "arguments": args})    # ── Ranking (top N players by metric) ────────────────────────────────
+    if intent == "ranking":
+        # Determine role from query words
+        role = "bowling" if re.search(r"\b(bowl|bowler|wicket|economy)\b", query, re.I) else "batting"
+        # Determine metric
+        metric = "strike_rate"
+        if re.search(r"\b(most\s*runs|runs|scoring)\b", query, re.I):
+            metric = "runs"
+        elif re.search(r"\b(average|avg)\b", query, re.I):
+            metric = "average"
+        elif re.search(r"\b(six(es)?|sixes)\b", query, re.I):
+            metric = "sixes"
+        elif re.search(r"\b(four(s)?)\b", query, re.I):
+            metric = "fours"
+        elif re.search(r"\b(econom(y|ical))\b", query, re.I):
+            metric = "economy"
+        elif re.search(r"\b(wickets?)\b", query, re.I):
+            metric = "wickets"
+        elif re.search(r"\b(strike\s*rate|sr\b)\b", query, re.I):
+            metric = "strike_rate" if role == "batting" else "strike_rate"
+        # Parse top N from query (e.g. "top 5" → 5)
+        n_match = re.search(r"\b(?:top|best)\s*(\d+)\b", query, re.I)
+        top_n = int(n_match.group(1)) if n_match else 10
+        top_n = min(max(top_n, 3), 25)
+        tools.append({"tool_name": "top_players", "arguments": {
+            "metric": metric, "role": role,
+            "format": fmt or "T20", "top_n": top_n,
+        }})
 
     # ── Stats intents ────────────────────────────────────────────────────
     if intent == "batting_stats":
@@ -378,7 +441,8 @@ def _extract_venue(query: str) -> str:
 
 # Intents that can be fully answered from local Cricsheet data (no Gemini needed)
 _RAG_ONLY_INTENTS = frozenset({
-    "batting_stats", "bowling_stats", "head_to_head", "form", "venue", "team_matchup",
+    "batting_stats", "bowling_stats", "head_to_head", "form",
+    "venue", "team_matchup", "ranking",
 })
 
 # Intents that REQUIRE live/web data — always allow search_server
@@ -389,7 +453,7 @@ _NEEDS_WEB_INTENTS = frozenset({
 # Tools that are LOCAL (no Gemini cost)
 _LOCAL_TOOLS = frozenset({
     "player_batting_stats", "player_bowling_stats", "head_to_head",
-    "venue_stats", "recent_form", "team_matchup",
+    "venue_stats", "recent_form", "team_matchup", "top_players",
 })
 
 # Tools that use external APIs but NOT Gemini (cheap)
