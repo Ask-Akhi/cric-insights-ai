@@ -8,7 +8,8 @@ Catches config bugs that pytest (unit/integration tests) will never see:
   4. Frontend build -- vite build must succeed (catches TS/JSX errors)
   5. Backend import -- main.py must import without crashing
   6. AST parse + collapsed-line scan -- catches silent syntax corruption
-  7. pytest gate   -- deployment config tests (file-read only, ~0.1s)
+  7. MCP pipeline smoke test -- intent classification + tool execution
+  8. pytest gate   -- deployment config tests (file-read only, ~0.1s)
 
 Exit 0 = safe to push.  Exit 1 = blocked.
 """
@@ -40,7 +41,7 @@ def check(label: str, ok: bool, detail: str = "", fatal: bool = True) -> bool:
 
 
 # -- 1. railway.toml ----------------------------------------------------------
-print("\n[1/6] railway.toml")
+print("\n[1/8] railway.toml")
 railway_path = ROOT / "railway.toml"
 try:
     raw = railway_path.read_text(encoding="utf-8")
@@ -88,7 +89,7 @@ except Exception as e:
 
 
 # -- 2. Dockerfile ------------------------------------------------------------
-print("\n[2/6] Dockerfile")
+print("\n[2/8] Dockerfile")
 dockerfile_path = ROOT / "Dockerfile"
 try:
     dockerfile = dockerfile_path.read_text(encoding="utf-8")
@@ -215,7 +216,7 @@ except Exception as e:
 
 
 # -- 3. requirements.txt -- no dev packages in prod ---------------------------
-print("\n[3/6] backend/requirements.txt (prod safety)")
+print("\n[3/8] backend/requirements.txt (prod safety)")
 req_path = ROOT / "backend" / "requirements.txt"
 DEV_ONLY = ["pytest", "pytest-", "black", "ruff", "mypy", "pylint", "ipython", "jupyter"]
 try:
@@ -233,7 +234,7 @@ except Exception as e:
 
 
 # -- 4. Frontend build --------------------------------------------------------
-print("\n[4/6] Frontend -- vite build")
+print("\n[4/8] Frontend -- vite build")
 frontend_dir = ROOT / "frontend"
 npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
 try:
@@ -255,7 +256,7 @@ except FileNotFoundError:
 
 
 # -- 5. Backend import smoke test ---------------------------------------------
-print("\n[5/6] Backend -- import smoke test")
+print("\n[5/8] Backend -- import smoke test")
 venv_python = ROOT / ".venv312" / "Scripts" / "python.exe"
 if not venv_python.exists():
     venv_python = ROOT / ".venv312" / "bin" / "python"
@@ -281,7 +282,7 @@ except subprocess.TimeoutExpired:
 
 
 # -- 6. AST parse + collapsed-line scan ----------------------------------------
-print("\n[6/7] Backend -- AST parse + collapsed-line scan")
+print("\n[6/8] Backend -- AST parse + collapsed-line scan")
 _BACKEND_PY_FILES = [
     "backend/src/mcp/servers/cricsheet_server.py",
     "backend/src/mcp/orchestrator.py",
@@ -335,8 +336,109 @@ if ast_ok:
     print("  All backend files pass AST parse + collapsed-line scan.")
 
 
-# -- 7. pytest gate -----------------------------------------------------------
-print("\n[7/7] pytest -- deployment config tests (file-read only, ~0.1s)")
+# -- 7. MCP pipeline smoke test -----------------------------------------------
+# Catches: wrong intent routing, broken tool handlers, import errors in the
+# MCP pipeline, collapsed lines that break tool execution — all causes of 502s.
+print("\n[7/8] MCP pipeline smoke test (intent + tools, ~2s)")
+
+_MCP_SMOKE_SCRIPT = r'''
+import sys, json
+sys.path.insert(0, ".")
+
+failures = []
+
+# 1. Intent classification
+from backend.src.mcp.orchestrator import classify_intent, select_tools, _is_fresh_query, _RAG_ONLY_INTENTS
+
+tests = {
+    "Top 5 T20 batters by strike rate right now": ("ranking", False),
+    "Virat Kohli batting stats T20":              ("batting_stats", False),
+    "live score India vs Australia":               ("live", True),
+    "who is batting right now":                    ("live", True),
+    "RCB vs MI head to head":                      ("head_to_head", False),
+    "best bowlers by economy":                     ("ranking", False),
+}
+
+for query, (expected_intent, expected_fresh) in tests.items():
+    intent = classify_intent(query)
+    is_fresh = _is_fresh_query(query)
+    if intent != expected_intent:
+        failures.append(f"Intent: '{query}' -> {intent} (expected {expected_intent})")
+    if is_fresh != expected_fresh:
+        failures.append(f"Fresh: '{query}' -> {is_fresh} (expected {expected_fresh})")
+
+# 2. Tool selection produces tools for key intents
+for query, expected_tool in [
+    ("Top 5 T20 batters by strike rate", "top_players"),
+    ("Virat Kohli batting stats", "player_batting_stats"),
+]:
+    intent = classify_intent(query)
+    tools = select_tools(query, intent)
+    tool_names = [t["tool_name"] for t in tools]
+    if expected_tool not in tool_names:
+        failures.append(f"Tools: '{query}' -> {tool_names} (expected {expected_tool})")
+
+# 3. RAG-only intents include ranking
+for intent in ["ranking", "batting_stats", "bowling_stats", "head_to_head"]:
+    if intent not in _RAG_ONLY_INTENTS:
+        failures.append(f"RAG intents: '{intent}' missing from _RAG_ONLY_INTENTS")
+
+# 4. Tool execution (top_players — needs Cricsheet data loaded)
+try:
+    from backend.src.mcp.servers.cricsheet_server import call_tool, list_tools
+    tool_names = [t["name"] for t in list_tools()]
+    if "top_players" not in tool_names:
+        failures.append("top_players not registered in cricsheet_server")
+    # Only test execution if local data exists
+    result = call_tool("top_players", {"metric": "runs", "format": "T20", "top_n": 3})
+    if "No Cricsheet data" not in result and "Error" in result:
+        failures.append(f"top_players returned error: {result[:100]}")
+except Exception as e:
+    failures.append(f"Tool import/exec error: {e}")
+
+if failures:
+    print(json.dumps({"ok": False, "failures": failures}))
+    sys.exit(1)
+else:
+    print(json.dumps({"ok": True, "tests_passed": len(tests) + 4}))
+'''
+
+try:
+    result = subprocess.run(
+        [python_exe, "-c", _MCP_SMOKE_SCRIPT],
+        cwd=str(ROOT),
+        capture_output=True, timeout=15,
+        encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONPATH": str(ROOT)}
+    )
+    if result.returncode == 0:
+        try:
+            import json
+            data = json.loads(result.stdout.strip().splitlines()[-1])
+            check(f"MCP smoke test ({data.get('tests_passed', '?')} assertions)", True)
+        except Exception:
+            check("MCP smoke test (output parse)", result.returncode == 0)
+    else:
+        # Parse failures from JSON output
+        detail_lines = []
+        try:
+            import json
+            for line in result.stdout.strip().splitlines():
+                if line.startswith("{"):
+                    data = json.loads(line)
+                    detail_lines = data.get("failures", [])
+                    break
+        except Exception:
+            pass
+        if not detail_lines:
+            detail_lines = (result.stderr or result.stdout or "").strip().splitlines()[-10:]
+        check("MCP smoke test", False, detail="\n         ".join(detail_lines))
+except subprocess.TimeoutExpired:
+    check("MCP smoke test (timeout)", False, detail="MCP pipeline hung >15s — likely 502 in production")
+
+
+# -- 8. pytest gate -----------------------------------------------------------
+print("\n[8/8] pytest -- deployment config tests (file-read only, ~0.1s)")
 try:
     result = subprocess.run(
         [python_exe, "-m", "pytest",

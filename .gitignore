@@ -126,3 +126,10 @@ frontend/android/gradle/wrapper/gradle-wrapper.jar
 frontend/android/app/src/main/assets/public/
 frontend/android/app/src/main/res/drawable-*/splash.png
 frontend/android/app/src/main/res/drawable/splash.png
+
+# ─── Temp / scratch scripts (local-only testing) ─────────────────────────────
+_test_*.py
+_test_*.txt
+_check_syntax.py
+_test_mcp.py
+_test_parse.py
