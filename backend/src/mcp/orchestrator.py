@@ -34,6 +34,10 @@ from . import client, context_assembler
 
 log = logging.getLogger("mcp.orchestrator")
 
+# Sentinel substring returned by _call_gemini when quota is exhausted.
+# Used by the orchestrator to detect quota failure and fall back to local data.
+_QUOTA_SENTINEL = "daily usage limit"
+
 # Thread pool for running sync tool handlers in parallel
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcp-tool")
 
@@ -168,32 +172,54 @@ def classify_intent(query: str) -> str:
     or 'general' if nothing matches.
 
     Fallback: if no pattern matched but a known player name is in the query,
-    assume it's a batting_stats query (e.g. "Dhoni IPL", "Kohli T20").
+    route to batting_stats or bowling_stats depending on whether the player
+    is a known bowler (e.g. "Bumrah" → bowling_stats, "Dhoni IPL" → batting_stats).
     """
     for intent_name, pattern in _INTENT_PATTERNS:
         if pattern.search(query):
             return intent_name
 
-    # Player-name fallback: "Dhoni IPL", "Kohli T20", "Bumrah" → batting_stats
-    if _has_known_player(query):
+    # Player-name fallback: "Dhoni IPL" → batting_stats, "Bumrah" → bowling_stats
+    matched_player = _get_known_player(query)
+    if matched_player:
+        if matched_player in _KNOWN_BOWLERS:
+            return "bowling_stats"
         return "batting_stats"
 
     return "general"
 
 
-def _has_known_player(query: str) -> bool:
-    """Check if query contains a known player name from PLAYER_ALIASES."""
+# Players whose primary role is bowling — used for player-name fallback intent.
+# When a user types just "Bumrah" or "Starc IPL", we route to bowling_stats.
+_KNOWN_BOWLERS: frozenset[str] = frozenset({
+    "JJ Bumrah", "MA Starc", "TA Boult", "K Rabada", "DW Steyn",
+    "SL Malinga", "Rashid Khan", "Shaheen Shah Afridi", "YS Chahal",
+    "R Ashwin", "Shakib Al Hasan", "AS Hasaranga", "JC Archer",
+    "T Natarajan", "Mohammed Shami", "Mohammed Siraj", "A Nortje",
+    "SP Narine", "DJ Bravo", "Kuldeep Yadav", "PJ Cummins",
+    "KA Jamieson", "JR Hazlewood", "M Shami", "HH Pandya",
+})
+
+
+def _get_known_player(query: str) -> str | None:
+    """Return the Cricsheet canonical name if query contains a known player,
+    or None. Skips aliases ≤ 2 chars to avoid false positives."""
     try:
         from backend.src.routers.players import PLAYER_ALIASES
     except ImportError:
-        return False
+        return None
     q_lower = query.lower()
-    for alias in PLAYER_ALIASES:
+    for alias in sorted(PLAYER_ALIASES.keys(), key=len, reverse=True):
         if len(alias) <= 2:
             continue  # skip very short aliases to avoid false positives
         if re.search(r'\b' + re.escape(alias) + r'\b', q_lower):
-            return True
-    return False
+            return PLAYER_ALIASES[alias]
+    return None
+
+
+def _has_known_player(query: str) -> bool:
+    """Check if query contains a known player name from PLAYER_ALIASES."""
+    return _get_known_player(query) is not None
 
 
 def _is_fresh_query(query: str) -> bool:
@@ -680,9 +706,7 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
                 gate = context_assembler.quality_gate(results)
                 _gemini_calls += 1  # web_search uses Gemini internally
         else:
-            log.info("Phase B: skipping web_search — only %.0fs left", remaining)
-
-    # ══════════════════════════════════════════════════════════════════════
+            log.info("Phase B: skipping web_search — only %.0fs left", remaining)    # ══════════════════════════════════════════════════════════════════════
     # PHASE C: Single LLM call with assembled context (deadline-aware)
     # ══════════════════════════════════════════════════════════════════════
     llm_budget = _remaining(t0, total_budget, margin=2)
@@ -693,6 +717,18 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
         log.info("LLM call budget: %.1fs (elapsed: %.1fs)", llm_budget, time.monotonic() - t0)
         answer = await _llm_call(query, assembled_context, intent, context, timeout=llm_budget)
         _gemini_calls += 1
+
+    # ── Post-LLM quota fallback ──────────────────────────────────────────
+    # If the LLM call hit quota mid-flight (circuit breaker tripped inside
+    # _call_gemini), prefer local data over a bare "daily usage limit" msg.
+    if _QUOTA_SENTINEL in answer:
+        has_useful_context = assembled_context and len(assembled_context.strip()) > 30
+        if has_useful_context:
+            log.info("LLM hit quota but local data available — using local context (intent=%s)", intent)
+            answer = assembled_context + (
+                "\n\n> ⚠️ *AI analysis unavailable (daily quota reached). "
+                "Showing data from Cricsheet ball-by-ball records.*"
+            )
 
     log.info(
         "Pipeline complete: intent=%s, gemini_calls=%d, elapsed=%.1fs",

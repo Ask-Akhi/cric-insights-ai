@@ -361,6 +361,8 @@ tests = {
     "best bowlers by economy":                     ("ranking", False),
     "Dhoni IPL":                                   ("batting_stats", False),
     "Kohli T20":                                   ("batting_stats", False),
+    "Bumrah":                                      ("bowling_stats", False),
+    "Starc IPL":                                   ("bowling_stats", False),
 }
 
 for query, (expected_intent, expected_fresh) in tests.items():
