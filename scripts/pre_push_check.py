@@ -385,7 +385,7 @@ for query, expected_tool in [
         failures.append(f"Tools: '{query}' -> {tool_names} (expected {expected_tool})")
 
 # 2b. Team vs team should NOT trigger player head_to_head
-for query in ["India vs Australia T20 record", "RCB vs RR head to head"]:
+for query in ["India vs Australia T20 record", "RCB vs RR head to head", "RCB vs RR h2h"]:
     intent = classify_intent(query)
     tools = select_tools(query, intent)
     tool_names = [t["tool_name"] for t in tools]
@@ -393,6 +393,18 @@ for query in ["India vs Australia T20 record", "RCB vs RR head to head"]:
         failures.append(f"Team h2h: '{query}' should NOT select player head_to_head, got {tool_names}")
     if "team_matchup" not in tool_names:
         failures.append(f"Team h2h: '{query}' should select team_matchup, got {tool_names}")
+
+# 2c. VS entity extraction: trailing noise must be stripped
+from backend.src.mcp.orchestrator import _extract_vs_entities
+for query, expected in [
+    ("RCB vs RR h2h", ("RCB", "RR")),
+    ("India vs Australia T20 record", ("India", "Australia")),
+    ("CSK vs MI head to head", ("CSK", "MI")),
+    ("Kohli vs Bumrah stats", ("Kohli", "Bumrah")),
+]:
+    got = _extract_vs_entities(query)
+    if got != expected:
+        failures.append(f"VS extraction: '{query}' -> {got} (expected {expected})")
 
 # 3. RAG-only intents include ranking
 for intent in ["ranking", "batting_stats", "bowling_stats", "head_to_head"]:
@@ -416,7 +428,7 @@ if failures:
     print(json.dumps({"ok": False, "failures": failures}))
     sys.exit(1)
 else:
-    print(json.dumps({"ok": True, "tests_passed": len(tests) + 8}))
+    print(json.dumps({"ok": True, "tests_passed": len(tests) + 15}))
 '''
 
 try:

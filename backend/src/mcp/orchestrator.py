@@ -159,7 +159,16 @@ _FORMAT_RE = re.compile(r"\b(T20I?|ODI|Test|IPL|BBL|CPL|PSL|WPL)\b", re.I)
 # Both sides use greedy capture up to the vs-keyword / end-of-useful-text,
 # then we strip trailing format words (T20, ODI, etc.) and noise.
 _VS_RE = re.compile(
-    r"(\b[\w\s]+?)\s+(?:vs\.?|versus|against|v\.?)\s+([\w\s]+?)(?:\s*$|\s*[,?.]|\s+(?:in|T20I?|ODI|Test|IPL|BBL|CPL|PSL|WPL|head|record|stats?|match|history)\b)",
+    r"(\b[\w\s]+?)\s+(?:vs\.?|versus|against|v\.?)\s+([\w\s]+?)(?:\s*$|\s*[,?.]|\s+(?:in|T20I?|ODI|Test|IPL|BBL|CPL|PSL|WPL|head|record|stats?|match|history|h2h|matchup|face\s*off)\b)",
+    re.I,
+)
+
+# Noise words that can trail a team/player name in "X vs Y <noise>" queries.
+# Stripped from extracted entities after _VS_RE match.
+_VS_NOISE_RE = re.compile(
+    r"\s+(?:h2h|head\s*to\s*head|record|stats?|match|history|matchup|face\s*off"
+    r"|today|tonight|yesterday|right\s*now"
+    r"|in|T20I?|ODI|Test|IPL|BBL|CPL|PSL|WPL)\s*$",
     re.I,
 )
 
@@ -303,10 +312,13 @@ def _extract_players(query: str) -> list[str]:
 
 
 def _extract_vs_entities(query: str) -> tuple[str, str] | None:
-    """Extract 'X vs Y' entities from the query."""
+    """Extract 'X vs Y' entities from the query, stripping trailing noise."""
     m = _VS_RE.search(query)
     if m:
-        return m.group(1).strip(), m.group(2).strip()
+        a = _VS_NOISE_RE.sub("", m.group(1).strip()).strip()
+        b = _VS_NOISE_RE.sub("", m.group(2).strip()).strip()
+        if a and b:
+            return a, b
     return None
 
 
@@ -637,7 +649,9 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
             "RAG fast-path: returning cricsheet data directly (%d tokens, intent=%s) — skipping Gemini",
             cricsheet_tokens, intent,
         )
-        return _build_result(results, query, intent, assembled_context, t0)    # Circuit breaker check — if Gemini quota is exhausted, return local data
+        return _build_result(results, query, intent, assembled_context, t0)
+
+    # Circuit breaker check — if Gemini quota is exhausted, return local data
     # gracefully instead of hitting the API and failing.
     if gemini_breaker.is_open:
         gemini_breaker.record_skip()
