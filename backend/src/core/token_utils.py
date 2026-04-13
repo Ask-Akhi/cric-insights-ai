@@ -32,7 +32,7 @@ def _init_tokenizer() -> None:
 
         _tokenizer = tiktoken.get_encoding("cl100k_base")
         log.info("Using tiktoken (cl100k_base) for token counting")
-    except ImportError:
+    except Exception:
         _tokenizer = None
         log.info("tiktoken not available — using character-based estimation")
 

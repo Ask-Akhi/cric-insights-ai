@@ -295,6 +295,8 @@ _BACKEND_PY_FILES = [
     "backend/src/routers/admin.py",
     "backend/src/services/circuit_breaker.py",
     "backend/src/services/data_refresh_scheduler.py",
+    "backend/src/core/token_utils.py",
+    "backend/src/mcp/context_assembler.py",
 ]
 _COLLAPSE_RE = re.compile(
     r'[)\"\'\}\]]\s{4,}'
@@ -378,6 +380,16 @@ for query, expected_tool in [
     if expected_tool not in tool_names:
         failures.append(f"Tools: '{query}' -> {tool_names} (expected {expected_tool})")
 
+# 2b. Team vs team should NOT trigger player head_to_head
+for query in ["India vs Australia T20 record", "RCB vs RR head to head"]:
+    intent = classify_intent(query)
+    tools = select_tools(query, intent)
+    tool_names = [t["tool_name"] for t in tools]
+    if "head_to_head" in tool_names:
+        failures.append(f"Team h2h: '{query}' should NOT select player head_to_head, got {tool_names}")
+    if "team_matchup" not in tool_names:
+        failures.append(f"Team h2h: '{query}' should select team_matchup, got {tool_names}")
+
 # 3. RAG-only intents include ranking
 for intent in ["ranking", "batting_stats", "bowling_stats", "head_to_head"]:
     if intent not in _RAG_ONLY_INTENTS:
@@ -400,7 +412,7 @@ if failures:
     print(json.dumps({"ok": False, "failures": failures}))
     sys.exit(1)
 else:
-    print(json.dumps({"ok": True, "tests_passed": len(tests) + 4}))
+    print(json.dumps({"ok": True, "tests_passed": len(tests) + 8}))
 '''
 
 try:

@@ -152,8 +152,10 @@ _SOFT_FRESHNESS_RE = re.compile(
 _FORMAT_RE = re.compile(r"\b(T20I?|ODI|Test|IPL|BBL|CPL|PSL|WPL)\b", re.I)
 
 # "X vs Y" pattern for team/player matchups
+# Both sides use greedy capture up to the vs-keyword / end-of-useful-text,
+# then we strip trailing format words (T20, ODI, etc.) and noise.
 _VS_RE = re.compile(
-    r"(\b[\w\s]+?)\s+(?:vs\.?|versus|against|v\.?)\s+([\w\s]+?)(?:\s|$|[,?.])",
+    r"(\b[\w\s]+?)\s+(?:vs\.?|versus|against|v\.?)\s+([\w\s]+?)(?:\s*$|\s*[,?.]|\s+(?:in|T20I?|ODI|Test|IPL|BBL|CPL|PSL|WPL|head|record|stats?|match|history)\b)",
     re.I,
 )
 
@@ -329,22 +331,28 @@ def select_tools(query: str, intent: str) -> list[dict[str, Any]]:
             if p != "unknown":
                 tools.append({"tool_name": "player_bowling_stats", "arguments": {"player_name": p, "format": fmt or "T20"}})
 
-    if intent == "head_to_head" and vs:
-        # Could be player vs player or team vs team
-        a, b = vs
-        # Try to resolve as players first
-        p_a = _resolve_player(a)
-        p_b = _resolve_player(b)
-        if p_a and p_b:
-            tools.append({"tool_name": "head_to_head", "arguments": {"batter": p_a, "bowler": p_b, "format": fmt or "T20"}})
-        # Also try team matchup
-        t_a = _resolve_team(a)
-        t_b = _resolve_team(b)
-        if t_a and t_b:
-            tools.append({"tool_name": "team_matchup", "arguments": {"team_a": t_a, "team_b": t_b, "format": fmt or "T20"}})
-        # Fallback: just use the raw names
-        if not tools:
-            tools.append({"tool_name": "head_to_head", "arguments": {"batter": a, "bowler": b, "format": fmt or "T20"}})
+    if intent == "head_to_head":
+        if vs:
+            # Could be player vs player or team vs team
+            a, b = vs
+            # Resolve entities — _resolve_player returns "" when not in PLAYER_ALIASES
+            p_a = _resolve_player(a)
+            p_b = _resolve_player(b)
+            t_a = _resolve_team(a)
+            t_b = _resolve_team(b)
+
+            # Player vs player (only when BOTH are known players)
+            if p_a and p_b:
+                tools.append({"tool_name": "head_to_head", "arguments": {"batter": p_a, "bowler": p_b, "format": fmt or "T20"}})
+            # Team vs team
+            if t_a and t_b:
+                tools.append({"tool_name": "team_matchup", "arguments": {"team_a": t_a, "team_b": t_b, "format": fmt or "T20"}})
+            # Fallback: raw names as team matchup first (more likely)
+            if not tools:
+                tools.append({"tool_name": "team_matchup", "arguments": {"team_a": a.strip(), "team_b": b.strip(), "format": fmt or "T20"}})
+        elif len(teams) >= 2:
+            # "vs" not parsed but we found 2 teams via alias extraction
+            tools.append({"tool_name": "team_matchup", "arguments": {"team_a": teams[0], "team_b": teams[1], "format": fmt or "T20"}})
 
     if intent == "venue":
         # Extract venue name — try to find it after "at" or "in" or just use full query
@@ -400,12 +408,16 @@ def select_tools(query: str, intent: str) -> list[dict[str, Any]]:
 
 
 def _resolve_player(name: str) -> str:
-    """Try to resolve a name to a Cricsheet player name."""
+    """Try to resolve a name to a Cricsheet player name.
+
+    Returns empty string when the name is NOT found in PLAYER_ALIASES
+    so callers can distinguish "known player" from "unknown/team name".
+    """
     try:
         from backend.src.routers.players import PLAYER_ALIASES
-        return PLAYER_ALIASES.get(name.strip().lower(), name.strip())
+        return PLAYER_ALIASES.get(name.strip().lower(), "")
     except ImportError:
-        return name.strip()
+        return ""
 
 
 def _resolve_team(name: str) -> str:
@@ -564,9 +576,11 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
     cricsheet_results = [r for r in results if r.ok and r.source == "cricsheet"]
     cricsheet_tokens = sum(r.tokens_estimate for r in cricsheet_results)
 
+    # RAG fast-path threshold: 50 tokens is enough for a team matchup summary,
+    # 150 was too high and caused valid results to fall through to Gemini/circuit breaker
     if (
         intent in _RAG_ONLY_INTENTS
-        and cricsheet_tokens >= 150           # enough data to answer directly
+        and cricsheet_tokens >= 50            # enough data to answer directly
         and gate["pass"]
         and not is_fresh                      # freshness still needs LLM synthesis
     ):
@@ -580,7 +594,10 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
     # gracefully instead of hitting the API and failing.
     if gemini_breaker.is_open:
         gemini_breaker.record_skip()
-        if assembled_context and gate["pass"]:
+        # For RAG-only intents, always serve local data even if gate is thin —
+        # the data IS there, it's better than showing a quota error.
+        has_useful_context = assembled_context and len(assembled_context.strip()) > 30
+        if (gate["pass"] or (intent in _RAG_ONLY_INTENTS and has_useful_context)):
             log.info("Circuit breaker open + local data available — serving local-only answer")
             return _build_result(results, query, intent, assembled_context, t0)
         else:

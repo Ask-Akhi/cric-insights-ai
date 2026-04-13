@@ -15,6 +15,27 @@ from ..core.token_utils import count_tokens, truncate_to_budget
 
 log = logging.getLogger("mcp.context_assembler")
 
+# Patterns that indicate a tool returned no useful data (noise to filter out)
+_EMPTY_PATTERNS = (
+    "no head-to-head data found",
+    "no matchup data found",
+    "no batting data found",
+    "no bowling data found",
+    "no venue data found",
+    "no data found",
+    "no form data found",
+    "error fetching",
+)
+
+
+def _is_empty_result(r: ToolResult) -> bool:
+    """Check if a tool result is effectively empty / 'no data found' noise."""
+    if not r.data or not r.data.strip():
+        return True
+    data_lower = r.data.strip().lower()
+    return any(pat in data_lower for pat in _EMPTY_PATTERNS)
+
+
 # Source priority — lower number = higher priority (kept first when truncating)
 _SOURCE_PRIORITY: dict[str, int] = {
     "cricsheet": 1,
@@ -36,10 +57,8 @@ def assemble(
       3. Truncate the last added result if it would exceed the budget
       4. Wrap in clear section delimiters so the LLM knows what came from where
     """
-    budget = max_tokens or settings.mcp_max_context_tokens
-
-    # Filter out failed / empty results
-    good = [r for r in results if r.ok]
+    budget = max_tokens or settings.mcp_max_context_tokens    # Filter out failed / empty results and suppress "no data found" noise
+    good = [r for r in results if r.ok and not _is_empty_result(r)]
     if not good:
         return ""
 
@@ -104,7 +123,7 @@ def quality_gate(results: Sequence[ToolResult]) -> dict:
             "reason": str,   # only set when pass=False
         }
     """
-    good = [r for r in results if r.ok]
+    good = [r for r in results if r.ok and not _is_empty_result(r)]
     total_tokens = sum(r.tokens_estimate for r in good)
     sources = list({r.source for r in good})
 

@@ -40,6 +40,7 @@ class AskResponse(BaseModel):
     data_sources: List[str] = []
     latency_ms: int = 0
     rag_cache_hit: bool = False
+    tools_used: List[str] = []
 
 
 def _api_error(status: int, code: str, message: str, detail: str = "") -> JSONResponse:
@@ -96,6 +97,7 @@ async def ask(req: AskRequest):
                     data_sources=mcp_result.data_sources,
                     latency_ms=mcp_result.latency_ms,
                     rag_cache_hit=False,
+                    tools_used=mcp_result.tools_used or [],
                 )
                 # Don't cache quota/error messages — only real answers
                 if not mcp_result.answer.startswith("⚠️") and not mcp_result.answer.startswith("⏱️"):
