@@ -166,11 +166,34 @@ def classify_intent(query: str) -> str:
     """
     Regex-based intent classification. Returns the first matching intent,
     or 'general' if nothing matches.
+
+    Fallback: if no pattern matched but a known player name is in the query,
+    assume it's a batting_stats query (e.g. "Dhoni IPL", "Kohli T20").
     """
     for intent_name, pattern in _INTENT_PATTERNS:
         if pattern.search(query):
             return intent_name
+
+    # Player-name fallback: "Dhoni IPL", "Kohli T20", "Bumrah" → batting_stats
+    if _has_known_player(query):
+        return "batting_stats"
+
     return "general"
+
+
+def _has_known_player(query: str) -> bool:
+    """Check if query contains a known player name from PLAYER_ALIASES."""
+    try:
+        from backend.src.routers.players import PLAYER_ALIASES
+    except ImportError:
+        return False
+    q_lower = query.lower()
+    for alias in PLAYER_ALIASES:
+        if len(alias) <= 2:
+            continue  # skip very short aliases to avoid false positives
+        if re.search(r'\b' + re.escape(alias) + r'\b', q_lower):
+            return True
+    return False
 
 
 def _is_fresh_query(query: str) -> bool:
@@ -588,26 +611,38 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
             "RAG fast-path: returning cricsheet data directly (%d tokens, intent=%s) — skipping Gemini",
             cricsheet_tokens, intent,
         )
-        return _build_result(results, query, intent, assembled_context, t0)
-
-    # Circuit breaker check — if Gemini quota is exhausted, return local data
+        return _build_result(results, query, intent, assembled_context, t0)    # Circuit breaker check — if Gemini quota is exhausted, return local data
     # gracefully instead of hitting the API and failing.
     if gemini_breaker.is_open:
         gemini_breaker.record_skip()
-        # For RAG-only intents, always serve local data even if gate is thin —
-        # the data IS there, it's better than showing a quota error.
+        # Always serve whatever local data we collected — for ANY intent.
+        # It's always better to show team matchup / player stats + a quota
+        # note than to show a bare "daily usage limit" error.
         has_useful_context = assembled_context and len(assembled_context.strip()) > 30
-        if (gate["pass"] or (intent in _RAG_ONLY_INTENTS and has_useful_context)):
-            log.info("Circuit breaker open + local data available — serving local-only answer")
-            return _build_result(results, query, intent, assembled_context, t0)
+        if has_useful_context:
+            log.info("Circuit breaker open + local data available — serving local-only answer (intent=%s)", intent)
+            quota_note = "\n\n> ⚠️ *AI analysis unavailable (daily quota reached). Showing data from Cricsheet ball-by-ball records.*"
+            return AskResult(
+                answer=assembled_context + quota_note,
+                intent=intent,
+                players=_extract_players(query),
+                mode="mcp",
+                data_sources=list({r.source for r in results if r.ok}),
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                tools_used=[r.tool_name for r in results if r.ok],
+            )
         else:
-            log.warning("Circuit breaker open + insufficient local data — returning quota message")
+            log.warning("Circuit breaker open + no local data — returning quota message (intent=%s)", intent)
             return AskResult(
                 answer=(
-                    "⚠️ The AI service has reached its daily usage limit. "
-                    "However, I found some local data:\n\n"
-                    + (assembled_context or "No local data available for this query.")
-                    + "\n\n> *Full AI analysis will be available when the quota resets.*"
+                    "⚠️ The AI service has reached its daily usage limit.\n\n"
+                    "**These queries still work** (powered by Cricsheet ball-by-ball data, no AI needed):\n"
+                    "- Player stats: *Virat Kohli batting stats T20*\n"
+                    "- Team matchups: *India vs Australia T20 record*\n"
+                    "- Rankings: *Top 10 T20 batters by strike rate*\n"
+                    "- Venue stats: *Wankhede stadium stats*\n"
+                    "- Player form: *Rohit Sharma recent form*\n\n"
+                    "> *Full AI analysis will be available when the quota resets.*"
                 ),
                 intent=intent,
                 players=_extract_players(query),

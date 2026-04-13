@@ -359,6 +359,8 @@ tests = {
     "who is batting right now":                    ("live", True),
     "RCB vs MI head to head":                      ("head_to_head", False),
     "best bowlers by economy":                     ("ranking", False),
+    "Dhoni IPL":                                   ("batting_stats", False),
+    "Kohli T20":                                   ("batting_stats", False),
 }
 
 for query, (expected_intent, expected_fresh) in tests.items():
