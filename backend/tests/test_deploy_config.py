@@ -3,10 +3,14 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
-def _railway():
-    raw = (ROOT_DIR / "railway.toml").read_text(encoding="utf-8")
-    cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("//"))
-    return tomllib.loads(cleaned)
+def _render():
+    """Parse render.yaml — requires PyYAML (add to dev requirements if missing)."""
+    try:
+        import yaml
+        return yaml.safe_load((ROOT_DIR / "render.yaml").read_text(encoding="utf-8"))
+    except ImportError:
+        # Fallback: return raw text so text-based assertions still work
+        return (ROOT_DIR / "render.yaml").read_text(encoding="utf-8")
 
 def _dockerfile():
     return (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
@@ -14,20 +18,43 @@ def _dockerfile():
 def _reqs():
     return (ROOT_DIR / "backend" / "requirements.txt").read_text(encoding="utf-8").lower()
 
-def test_railway_no_startcommand():
-    deploy = _railway().get("deploy", {})
-    assert "startCommand" not in deploy, f"startCommand overrides Dockerfile CMD: {deploy.get('startCommand')}"
+# ── render.yaml tests ─────────────────────────────────────────────────────────
 
-def test_railway_builder_dockerfile():
-    assert _railway().get("build", {}).get("builder", "").lower() == "dockerfile"
+def test_render_yaml_exists():
+    assert (ROOT_DIR / "render.yaml").exists(), "render.yaml missing — Render needs this to deploy"
 
-def test_railway_healthcheck_path():
-    assert _railway().get("deploy", {}).get("healthcheckPath") == "/api/health"
+def test_render_service_runtime_docker():
+    cfg = _render()
+    if isinstance(cfg, str):
+        assert "runtime: docker" in cfg
+    else:
+        svc = cfg.get("services", [{}])[0]
+        assert svc.get("runtime") == "docker", f"runtime must be 'docker', got '{svc.get('runtime')}'"
 
-def test_railway_healthcheck_timeout():
-    # Cricsheet background download takes ~2-4 min — need at least 300s
-    assert _railway().get("deploy", {}).get("healthcheckTimeout", 0) >= 300, \
-        "healthcheckTimeout must be >= 300s — Cricsheet download takes ~2-4 min on Railway"
+def test_render_healthcheck_path():
+    cfg = _render()
+    if isinstance(cfg, str):
+        assert "healthCheckPath: /api/health" in cfg
+    else:
+        svc = cfg.get("services", [{}])[0]
+        assert svc.get("healthCheckPath") == "/api/health", \
+            f"healthCheckPath is '{svc.get('healthCheckPath')}' — must be '/api/health'"
+
+def test_render_gemini_key_declared_not_hardcoded():
+    cfg = _render()
+    if isinstance(cfg, str):
+        assert "GEMINI_API_KEY" in cfg, "GEMINI_API_KEY not declared in render.yaml"
+        assert "sync: false" in cfg, "GEMINI_API_KEY must use 'sync: false' — do not commit actual key"
+    else:
+        svc = cfg.get("services", [{}])[0]
+        env_vars = svc.get("envVars", [])
+        keys = {e.get("key"): e for e in env_vars}
+        assert "GEMINI_API_KEY" in keys, "GEMINI_API_KEY not declared in envVars"
+        entry = keys["GEMINI_API_KEY"]
+        assert "value" not in entry, \
+            "GEMINI_API_KEY must NOT have a 'value:' — use 'sync: false' and set it in Render dashboard"
+
+# ── Dockerfile tests ──────────────────────────────────────────────────────────
 
 def test_dockerfile_cmd_uvicorn():
     cmds = [l.strip() for l in _dockerfile().splitlines() if l.strip().startswith("CMD")]
@@ -55,6 +82,8 @@ def test_dockerfile_cricsheet_baked_at_build():
 def test_dockerfile_polars_threads():
     assert "POLARS_MAX_THREADS" in _dockerfile()
 
+# ── requirements.txt tests ────────────────────────────────────────────────────
+
 def test_requirements_no_pytest():
     assert not re.search(r"^pytest(\s|=|$)", _reqs(), re.MULTILINE)
 
@@ -66,4 +95,4 @@ def test_requirements_no_dev_tools():
 def test_requirements_pyarrow_not_too_high():
     m = re.search(r"pyarrow==(\d+)", _reqs())
     if m:
-        assert int(m.group(1)) < 18, f"pyarrow=={m.group(1)} causes OOM on Railway 512MB"
+        assert int(m.group(1)) < 18, f"pyarrow=={m.group(1)} may cause OOM on 512MB containers"

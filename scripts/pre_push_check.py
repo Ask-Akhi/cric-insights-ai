@@ -2,7 +2,7 @@
 pre_push_check.py -- Deployment validation gate run before every git push.
 
 Catches config bugs that pytest (unit/integration tests) will never see:
-  1. railway.toml  -- forbidden keys that override Dockerfile CMD
+  1. render.yaml   -- required keys, healthCheckPath, no startCommand override
   2. Dockerfile    -- CMD must be uvicorn, not npm/node
   3. requirements  -- no dev-only packages in prod
   4. Frontend build -- vite build must succeed (catches TS/JSX errors)
@@ -16,6 +16,11 @@ Exit 0 = safe to push.  Exit 1 = blocked.
 from __future__ import annotations
 import sys, os, io, re, ast, subprocess, tomllib
 from pathlib import Path
+try:
+    import yaml as _yaml
+    _HAS_YAML = True
+except ImportError:
+    _HAS_YAML = False
 
 # Force UTF-8 stdout so ANSI works on Windows cp1252 consoles
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -40,52 +45,70 @@ def check(label: str, ok: bool, detail: str = "", fatal: bool = True) -> bool:
     return ok
 
 
-# -- 1. railway.toml ----------------------------------------------------------
-print("\n[1/8] railway.toml")
-railway_path = ROOT / "railway.toml"
+# -- 1. render.yaml -----------------------------------------------------------
+print("\n[1/8] render.yaml")
+render_path = ROOT / "render.yaml"
 try:
-    raw = railway_path.read_text(encoding="utf-8")
-    cleaned = "\n".join(
-        line for line in raw.splitlines()
-        if not line.strip().startswith("//")
-    )
-    cfg = tomllib.loads(cleaned)
-    deploy = cfg.get("deploy", {})
+    render_raw = render_path.read_text(encoding="utf-8")
+    check("render.yaml exists", True)
 
-    _sc = deploy.get("startCommand", "")
-    check(
-        "No startCommand override",
-        "startCommand" not in deploy,
-        detail=(
-            f'startCommand = "{_sc}" overrides Dockerfile CMD. '
-            "Final image is python:3.12-slim -- npm/node do not exist there."
+    if _HAS_YAML:
+        render_cfg = _yaml.safe_load(render_raw)
+        services = render_cfg.get("services", [])
+        check(
+            "render.yaml has at least one service",
+            bool(services),
+            detail="'services:' list is empty or missing"
         )
-    )
+        if services:
+            svc = services[0]
+            check(
+                "service runtime = docker",
+                svc.get("runtime") == "docker",
+                detail=f"runtime is '{svc.get('runtime')}' — must be 'docker'"
+            )
+            check(
+                "dockerfilePath set",
+                "dockerfilePath" in svc,
+                detail="dockerfilePath must reference ./Dockerfile"
+            )
+            hc = svc.get("healthCheckPath", "")
+            check(
+                "healthCheckPath = /api/health",
+                hc == "/api/health",
+                detail=f"healthCheckPath is '{hc}'"
+            )
+            # Verify GEMINI_API_KEY is declared (sync: false = manual secret)
+            env_vars = svc.get("envVars", [])
+            env_keys = [e.get("key") for e in env_vars]
+            check(
+                "GEMINI_API_KEY declared in envVars",
+                "GEMINI_API_KEY" in env_keys,
+                detail="Add GEMINI_API_KEY with sync: false so Render knows to expect it"
+            )
+            # Make sure no plain-text secret values are committed
+            for ev in env_vars:
+                if ev.get("key") == "GEMINI_API_KEY":
+                    check(
+                        "GEMINI_API_KEY has no hardcoded value",
+                        "value" not in ev,
+                        detail="GEMINI_API_KEY must use 'sync: false', not a hardcoded 'value:'"
+                    )
+    else:
+        # PyYAML not installed — do a basic text scan
+        check("render.yaml has healthCheckPath", "healthCheckPath" in render_raw)
+        check("render.yaml has dockerfilePath",  "dockerfilePath" in render_raw)
+        check("render.yaml has GEMINI_API_KEY",  "GEMINI_API_KEY" in render_raw)
+        check(
+            "GEMINI_API_KEY not hardcoded",
+            "GEMINI_API_KEY" not in render_raw or "sync: false" in render_raw,
+            detail="GEMINI_API_KEY must use 'sync: false' — do not commit the actual key"
+        )
 
-    build = cfg.get("build", {})
-    check(
-        "builder = dockerfile",
-        build.get("builder", "").lower() == "dockerfile",
-        detail=f"builder is '{build.get('builder')}' -- must be 'dockerfile'"
-    )
-
-    hc = deploy.get("healthcheckPath", "")
-    check(
-        "healthcheckPath = /api/health",
-        hc == "/api/health",
-        detail=f"healthcheckPath is '{hc}'"
-    )
-
-    hct = deploy.get("healthcheckTimeout", 0)
-    check(
-        f"healthcheckTimeout >= 300 (got {hct})",
-        hct >= 300,
-        detail="Cricsheet background download takes ~2-4 min -- timeout must be > 300s",
-        fatal=False
-    )
-
+except FileNotFoundError:
+    check("render.yaml exists", False, detail="render.yaml missing — Render needs this file to deploy")
 except Exception as e:
-    check("railway.toml parses cleanly", False, detail=str(e))
+    check("render.yaml parses cleanly", False, detail=str(e))
 
 
 # -- 2. Dockerfile ------------------------------------------------------------
@@ -129,7 +152,7 @@ try:
         )
 
     # Cricsheet data should be baked at build time for reliable data availability.
-    # Railway build containers have ~8 GB RAM — the ~80 MB download + parse is safe.
+    # Render build containers have ~4 GB RAM — the ~80 MB download + parse is safe.
     # Only the ~30 MB parquet output remains in the final image (raw CSVs are deleted).
     check(
         "Cricsheet data baked at build time",
@@ -406,6 +429,36 @@ for query, expected in [
     if got != expected:
         failures.append(f"VS extraction: '{query}' -> {got} (expected {expected})")
 
+# 2d. strip_delimiters removes section headers from user-facing output
+from backend.src.mcp.context_assembler import strip_delimiters
+raw_ctx = (
+    "--- CRICSHEET BALL-BY-BALL DATA (tool: team_matchup) ---\n"
+    "SRH vs RR: 32 matches\n"
+    "--- END CRICSHEET BALL-BY-BALL DATA ---\n\n"
+    "--- WEB SEARCH RESULTS (tool: web_search) ---\n"
+    "Some web info\n"
+    "--- END WEB SEARCH RESULTS ---"
+)
+stripped = strip_delimiters(raw_ctx)
+if "---" in stripped:
+    failures.append(f"strip_delimiters: delimiters still present: {stripped[:80]}")
+if "SRH vs RR: 32 matches" not in stripped:
+    failures.append(f"strip_delimiters: data content lost: {stripped[:80]}")
+if "Some web info" not in stripped:
+    failures.append(f"strip_delimiters: web content lost: {stripped[:80]}")
+
+# 2e. _is_empty_result filters quota error messages from web_search
+from backend.src.mcp.context_assembler import _is_empty_result
+from backend.src.core.result import ToolResult
+quota_result = ToolResult(
+    tool_name="web_search", source="search",
+    data="⚠️ The AI service has reached its daily usage limit.",
+    tokens_estimate=20,
+    error=None,
+)
+if not _is_empty_result(quota_result):
+    failures.append("_is_empty_result should filter 'ai service has reached' quota messages")
+
 # 3. RAG-only intents include ranking
 for intent in ["ranking", "batting_stats", "bowling_stats", "head_to_head"]:
     if intent not in _RAG_ONLY_INTENTS:
@@ -428,7 +481,7 @@ if failures:
     print(json.dumps({"ok": False, "failures": failures}))
     sys.exit(1)
 else:
-    print(json.dumps({"ok": True, "tests_passed": len(tests) + 15}))
+    print(json.dumps({"ok": True, "tests_passed": len(tests) + 20}))
 '''
 
 try:

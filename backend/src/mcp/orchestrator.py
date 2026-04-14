@@ -663,7 +663,7 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
             log.info("Circuit breaker open + local data available — serving local-only answer (intent=%s)", intent)
             quota_note = "\n\n> ⚠️ *AI analysis unavailable (daily quota reached). Showing data from Cricsheet ball-by-ball records.*"
             return AskResult(
-                answer=assembled_context + quota_note,
+                answer=context_assembler.strip_delimiters(assembled_context) + quota_note,
                 intent=intent,
                 players=_extract_players(query),
                 mode="mcp",
@@ -718,15 +718,15 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
                 results.append(search_result)
                 assembled_context = context_assembler.assemble(results)
                 gate = context_assembler.quality_gate(results)
-                _gemini_calls += 1  # web_search uses Gemini internally
-        else:
-            log.info("Phase B: skipping web_search — only %.0fs left", remaining)    # ══════════════════════════════════════════════════════════════════════
+                _gemini_calls += 1  # web_search uses Gemini internally        else:
+            log.info("Phase B: skipping web_search — only %.0fs left", remaining)
+    # ══════════════════════════════════════════════════════════════════════
     # PHASE C: Single LLM call with assembled context (deadline-aware)
     # ══════════════════════════════════════════════════════════════════════
     llm_budget = _remaining(t0, total_budget, margin=2)
     if llm_budget < 3:
         log.warning("Only %.1fs left for LLM call — returning tool context directly", llm_budget)
-        answer = assembled_context or "⏱️ Not enough time to generate a full answer. Please try again."
+        answer = context_assembler.strip_delimiters(assembled_context) if assembled_context else "⏱️ Not enough time to generate a full answer. Please try again."
     else:
         log.info("LLM call budget: %.1fs (elapsed: %.1fs)", llm_budget, time.monotonic() - t0)
         answer = await _llm_call(query, assembled_context, intent, context, timeout=llm_budget)
@@ -739,7 +739,7 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
         has_useful_context = assembled_context and len(assembled_context.strip()) > 30
         if has_useful_context:
             log.info("LLM hit quota but local data available — using local context (intent=%s)", intent)
-            answer = assembled_context + (
+            answer = context_assembler.strip_delimiters(assembled_context) + (
                 "\n\n> ⚠️ *AI analysis unavailable (daily quota reached). "
                 "Showing data from Cricsheet ball-by-ball records.*"
             )
@@ -774,7 +774,7 @@ def _build_result(
 ) -> AskResult:
     """Helper to build an AskResult from tool results (RAG fast-path)."""
     return AskResult(
-        answer=assembled_context,
+        answer=context_assembler.strip_delimiters(assembled_context),
         intent=intent,
         players=_extract_players(query),
         mode="mcp",

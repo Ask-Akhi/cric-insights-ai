@@ -7,6 +7,7 @@ lowest-priority results first.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Sequence
 
 from ..core.config import settings
@@ -25,6 +26,8 @@ _EMPTY_PATTERNS = (
     "no data found",
     "no form data found",
     "error fetching",
+    "daily usage limit",                  # quota error leaked from web_search
+    "ai service has reached",             # quota warning message from fallback
 )
 
 
@@ -93,6 +96,32 @@ def assemble(
         len(sections), used_tokens, budget,
     )
     return assembled
+
+
+# ── Section delimiter regex for stripping before user-facing output ──────────
+
+_DELIMITER_RE = re.compile(
+    r"---\s*(?:END\s+)?"
+    r"(?:CRICSHEET BALL-BY-BALL DATA|LIVE/RECENT MATCH DATA|WEB SEARCH RESULTS)"
+    r"(?:\s*\(tool:\s*\w+\))?\s*---[ \t]*\n?",
+    re.IGNORECASE,
+)
+
+
+def strip_delimiters(text: str) -> str:
+    """
+    Remove internal section delimiters from assembled context so it reads
+    cleanly when served directly to users (quota fallback, circuit breaker).
+
+    Delimiters like ``--- CRICSHEET BALL-BY-BALL DATA (tool: team_matchup) ---``
+    are meant for LLM consumption, not end users.
+    """
+    if not text:
+        return text
+    cleaned = _DELIMITER_RE.sub("", text)
+    # Collapse runs of 3+ blank lines into 2
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _format_section(r: ToolResult) -> str:

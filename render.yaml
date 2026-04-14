@@ -1,0 +1,33 @@
+﻿# Render deployment config - https://render.com/docs/infrastructure-as-code
+# This replaces railway.toml. Dockerfile and CMD are unchanged.
+
+services:
+  - type: web
+    name: cric-insights-ai
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    buildFilter:
+      paths:
+        - Dockerfile
+        - backend/**
+        - frontend/**
+        - render.yaml
+    envVars:
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_MODEL
+        value: gemini-2.0-flash
+      - key: CRICSHEET_DATA_DIR
+        value: /app/data/cricsheet
+      - key: CRICSHEET_REFRESH_HOURS
+        value: "6"
+      - key: FRONTEND_DIST
+        value: /app/frontend/dist
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: POLARS_MAX_THREADS
+        value: "2"
+      - key: GEMINI_API_KEY
+        sync: false
