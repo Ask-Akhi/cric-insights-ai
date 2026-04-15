@@ -78,6 +78,10 @@ def _run_refresh() -> None:
             log.info("Cricsheet refresh complete")
             _refresh_state["success"] = True
             _invalidate_providers()
+            # Flush LLM cache so post-refresh queries see new data,
+            # not stale answers baked before the reload.
+            evicted = llm_cache.invalidate_all()
+            log.info("LLM cache flushed after data refresh (%d entries evicted)", evicted)
         else:
             err = (result.stderr or result.stdout)[-800:]
             log.warning("Cricsheet refresh failed: %s", err)

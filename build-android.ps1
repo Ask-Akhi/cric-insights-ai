@@ -17,6 +17,17 @@ $apkDest = "$root\CricketInsightsAI.apk"
 Write-Host "`n🏏 Cricket Insights AI — Android Build" -ForegroundColor Cyan
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
 
+# ── 0. Require VITE_API_URL to be set to the real Railway backend ─────────────
+$apiUrl = $env:VITE_API_URL
+if (-not $apiUrl -or $apiUrl -match "your-app|placeholder|localhost|127\.0\.0\.1") {
+    Write-Host "`n❌  VITE_API_URL is not set (or still a placeholder)." -ForegroundColor Red
+    Write-Host "    Set it before building:" -ForegroundColor Yellow
+    Write-Host '    $env:VITE_API_URL = "https://YOUR-APP.up.railway.app"' -ForegroundColor Cyan
+    Write-Host "    Then re-run this script.`n" -ForegroundColor Yellow
+    exit 1
+}
+Write-Host "  API URL: $apiUrl" -ForegroundColor Green
+
 # ── 1. Build React (capacitor mode uses relative asset paths) ─────────────────
 Write-Host "`n📦 [1/3] Building React app..." -ForegroundColor Yellow
 Set-Location $front

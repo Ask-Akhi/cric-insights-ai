@@ -1,8 +1,19 @@
+/// <reference types="node" />
 import type { CapacitorConfig } from '@capacitor/cli'
 
-// Set VITE_API_URL to your Railway URL before building for device
-// e.g.  $env:VITE_API_URL = "https://your-app.up.railway.app"
-const RAILWAY_URL = process.env.VITE_API_URL ?? 'https://cric-insights-ai.com'
+// Set VITE_API_URL to your Railway URL before building for device.
+// e.g.  $env:VITE_API_URL = "https://YOUR-APP.up.railway.app"
+// Never commit a real URL here — use the env var.
+const _rawUrl = process.env.VITE_API_URL ?? ''
+if (!_rawUrl || _rawUrl.includes('your-app') || _rawUrl.includes('placeholder')) {
+  // Fail the Capacitor config step loudly during `cap sync` rather than
+  // silently shipping an APK that points at nothing.
+  throw new Error(
+    '[capacitor.config.ts] VITE_API_URL is not set.\n' +
+    'Run:  $env:VITE_API_URL = "https://YOUR-APP.up.railway.app"  then retry.'
+  )
+}
+const RAILWAY_URL = _rawUrl
 
 const config: CapacitorConfig = {
   appId: 'com.akhi2026.cricinsightsai',
