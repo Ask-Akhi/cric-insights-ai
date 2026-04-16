@@ -31,21 +31,18 @@ class Settings:
     )
     openai_api_key: str = field(
         default_factory=lambda: os.getenv("OPENAI_API_KEY", "")
-    )
-
-    # ── Timeouts (seconds) ─────────────────────────────────
-    railway_wall_s: int = 60
+    )    # ── Timeouts (seconds) ─────────────────────────────────
+    render_wall_s: int = 60          # Render/container hard-kill wall time
+    railway_wall_s: int = 60         # kept for backward-compat aliases
     tier1_timeout_s: int = 44
     tier2_budget_s: int = 44
     non_grounded_timeout_s: int = 52
-    frontend_timeout_s: int = 58
-
-    # ── Cache ──────────────────────────────────────────────
+    frontend_timeout_s: int = 58    # ── Cache ──────────────────────────────────────────────
     ask_cache_ttl_s: int = 1800
-    ask_cache_max: int = 200
+    ask_cache_max: int = 50          # reduced from 200 — each entry holds a full response dict
     rag_cache_ttl_s: int = 600
     llm_cache_ttl_s: int = 1800
-    llm_cache_max: int = 100
+    llm_cache_max: int = 50          # reduced from 200 — keeps peak in-process RAM bounded
     live_cache_ttl_s: int = 30       # live score context — short TTL
 
     # ── Token limits ───────────────────────────────────────

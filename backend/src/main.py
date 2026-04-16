@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     log.info("Cric Insights API ready on PORT=%s uptime=%.1fs", port, time.time() - _START_TIME)
     log.info("FRONTEND_DIST=%s exists=%s", DIST_DIR, os.path.isdir(DIST_DIR))
     if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
-        log.warning("No LLM API key set — add GEMINI_API_KEY in Railway Variables")
+        log.warning("No LLM API key set — add GEMINI_API_KEY in Render → Environment")
 
     # Start periodic Cricsheet data refresh (default: every 6h, 0 = disabled)
     from .services import data_refresh_scheduler
@@ -95,7 +95,7 @@ def health():
         "refresh_schedule": refresh_schedule,
     }
 
-# ── Routers — let import errors surface so Railway logs show the real cause ───
+# ── Routers — let import errors surface so Render logs show the real cause ───
 from .routers import players, matches, insights, ask, admin  # noqa: E402
 app.include_router(players.router,  prefix="/api/players",  tags=["players"])
 app.include_router(matches.router,  prefix="/api/matches",  tags=["matches"])

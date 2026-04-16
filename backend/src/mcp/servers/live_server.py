@@ -305,7 +305,7 @@ def _get_toss_data(match_ids: list[str]) -> dict[str, dict]:
     Returns {match_id: {toss_winner, toss_decision}}.
 
     Reuses the RAG service's singleton CricsheetProvider to avoid OOM
-    on 512MB Railway containers.
+    on 512MB Render starter containers.
     """
     if not match_ids:
         return {}

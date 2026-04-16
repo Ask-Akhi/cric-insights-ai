@@ -70,7 +70,7 @@ def _get_rag_cached(key: str) -> Dict | None:
 
 
 def _set_rag_cached(key: str, data: Dict) -> None:
-    if len(_RAG_CACHE) >= 200:
+    if len(_RAG_CACHE) >= 50:
         oldest = min(_RAG_CACHE, key=lambda k: _RAG_CACHE[k]["ts"])
         del _RAG_CACHE[oldest]
     _RAG_CACHE[key] = {"data": data, "ts": time.time()}
@@ -368,7 +368,7 @@ def _get_team_recent_players(team: str, fmt: str = "T20", limit: int = 11) -> Li
             .unique(subset=["match_id"])
             .sort("start_date", descending=True)
             .head(5)
-            .collect()
+            .collect(streaming=True)
         )
         if matches.is_empty():
             # Fallback: try without format filter
@@ -378,38 +378,37 @@ def _get_team_recent_players(team: str, fmt: str = "T20", limit: int = 11) -> Li
                 .unique(subset=["match_id"])
                 .sort("start_date", descending=True)
                 .head(5)
-                .collect()
+                .collect(streaming=True)
             )
         if matches.is_empty():
             return []
 
         match_ids = matches.get_column("match_id").to_list()
 
-        # Get all batters + bowlers from those matches who played for this team
-        df = (
-            lf.filter(pl.col("match_id").is_in(match_ids))
-            .collect()
-        )
+        # Derive squad without full materialisation — stay lazy until the final head()
+        lf_matches = lf.filter(pl.col("match_id").is_in(match_ids))
 
-        # Batters from this team
+        # Batters playing FOR this team
         batters = (
-            df.filter(pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
+            lf_matches
+            .filter(pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
             .select(pl.col("batter").alias("player"))
         )
-        # Bowlers bowling AGAINST this team are FROM the other team — we want
-        # bowlers FROM this team, which means they bowled when the OTHER team batted
+        # Bowlers FROM this team bowl when the OTHER team bats
         bowlers = (
-            df.filter(~pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
+            lf_matches
+            .filter(~pl.col("batting_team").str.to_lowercase().str.contains(team_lower))
             .select(pl.col("bowler").alias("player"))
         )
 
         combined = (
-            pl.concat([batters, bowlers], how="vertical")
+            pl.concat([batters, bowlers], how="diagonal_relaxed")
             .filter(pl.col("player").is_not_null())
             .group_by("player")
             .agg(pl.len().alias("appearances"))
             .sort("appearances", descending=True)
             .head(limit)
+            .collect(streaming=True)
         )
         return combined.get_column("player").to_list()
     except Exception:

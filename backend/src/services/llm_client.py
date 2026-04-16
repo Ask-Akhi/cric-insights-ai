@@ -75,9 +75,9 @@ def _set_cached(key: str, answer: str) -> None:
 def _check_api_key() -> str | None:
     """Returns an error message if no API key is configured, else None."""
     if LLM_PROVIDER == "gemini" and not GEMINI_API_KEY:
-        return "GEMINI_API_KEY is not configured. Please set it in Railway → Variables."
+        return "GEMINI_API_KEY is not configured. Please set it in Render → Environment."
     if LLM_PROVIDER == "openai" and not OPENAI_API_KEY:
-        return "OPENAI_API_KEY is not configured. Please set it in Railway → Variables."
+        return "OPENAI_API_KEY is not configured. Please set it in Render → Environment."
     return None
 
 
@@ -174,7 +174,7 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
 
     client = genai.Client(
         api_key=GEMINI_API_KEY,
-        http_options=types.HttpOptions(timeout=40_000),  # 40s in ms — Railway kills at 60s
+        http_options=types.HttpOptions(timeout=40_000),  # 40s in ms — Render wall is 60s
     )
     # Grounded path uses a shorter prompt so Gemini responds faster (web search adds ~15s)
     full_prompt = _build_prompt(prompt, context, grounded=grounded)

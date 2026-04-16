@@ -252,7 +252,7 @@ def test_sw_js():
     assert client.get("/sw.js").status_code in (200, 404)
 
 
-# ── 10. Deployment config sanity (catches railway.toml / Dockerfile bugs) ─────
+# ── 10. Deployment config sanity (catches toml / Dockerfile / render.yaml bugs) ─
 
 import tomllib, re
 from pathlib import Path
@@ -263,7 +263,6 @@ def test_railway_toml_no_startcommand():
     """startCommand overrides Dockerfile CMD — npm doesn't exist in python:3.12-slim."""
     railway = ROOT_DIR / "railway.toml"
     raw = railway.read_text(encoding="utf-8")
-    # Strip // comments (VS Code filepath annotations) before parsing TOML
     cleaned = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("//"))
     cfg = tomllib.loads(cleaned)
     deploy = cfg.get("deploy", {})
@@ -287,6 +286,29 @@ def test_railway_toml_healthcheck_path():
     cfg = tomllib.loads(cleaned)
     assert cfg.get("deploy", {}).get("healthcheckPath") == "/api/health"
 
+def test_render_yaml_exists():
+    """render.yaml must exist — it's the primary deploy config on Render."""
+    assert (ROOT_DIR / "render.yaml").exists(), "render.yaml missing from repo root"
+
+def test_render_yaml_health_check_path():
+    """Render health check must point to /api/health."""
+    import yaml  # pyyaml is in requirements
+    raw = (ROOT_DIR / "render.yaml").read_text(encoding="utf-8")
+    cfg = yaml.safe_load(raw)
+    service = cfg.get("services", [{}])[0]
+    hc = service.get("healthCheckPath", "")
+    assert hc == "/api/health", f"render.yaml healthCheckPath is '{hc}', expected '/api/health'"
+
+def test_render_yaml_docker_deploy_command():
+    """Render deploy must use uvicorn, not npm."""
+    import yaml
+    raw = (ROOT_DIR / "render.yaml").read_text(encoding="utf-8")
+    cfg = yaml.safe_load(raw)
+    service = cfg.get("services", [{}])[0]
+    cmd = service.get("startCommand", "") or ""
+    if cmd:
+        assert "uvicorn" in cmd, f"render.yaml startCommand should use uvicorn: {cmd}"
+
 def test_dockerfile_cmd_uses_uvicorn():
     """Dockerfile CMD must be uvicorn, not npm or node."""
     dockerfile = (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
@@ -297,7 +319,7 @@ def test_dockerfile_cmd_uses_uvicorn():
     assert "npm" not in last_cmd, f"CMD uses npm (no npm in python:3.12-slim): {last_cmd}"
 
 def test_dockerfile_cmd_binds_all_interfaces():
-    """CMD must bind to 0.0.0.0, not 127.0.0.1 (localhost unreachable in Railway)."""
+    """CMD must bind to 0.0.0.0, not 127.0.0.1 (unreachable inside containers)."""
     dockerfile = (ROOT_DIR / "Dockerfile").read_text(encoding="utf-8")
     cmd_lines = [l.strip() for l in dockerfile.splitlines() if l.strip().startswith("CMD")]
     assert cmd_lines
@@ -324,12 +346,32 @@ def test_requirements_no_pytest_in_prod():
     )
 
 def test_requirements_no_pyarrow_pinned_high():
-    """pyarrow>=18 with polars causes OOM at import on 512 MB Railway containers."""
+    """pyarrow>=18 with polars causes OOM at import on 512 MB Render starter containers."""
     reqs = (ROOT_DIR / "backend" / "requirements.txt").read_text(encoding="utf-8").lower()
     match = re.search(r"pyarrow==(\d+)", reqs)
     if match:
         major = int(match.group(1))
-        assert major < 18, f"pyarrow=={major} causes OOM with polars on Railway Hobby (512 MB)"
+        assert major < 18, f"pyarrow=={major} causes OOM with polars on Render starter (512 MB)"
+
+def test_cricsheet_provider_max_rows_constant():
+    """CricsheetProvider._MAX_ROWS must be set — prevents unbounded DataFrame collects."""
+    from backend.src.providers.cricsheet_provider import CricsheetProvider
+    assert hasattr(CricsheetProvider, "_MAX_ROWS"), "CricsheetProvider._MAX_ROWS not defined"
+    assert CricsheetProvider._MAX_ROWS <= 100_000, (
+        f"_MAX_ROWS={CricsheetProvider._MAX_ROWS} is too high for a 512 MB container"
+    )
+
+def test_orchestrator_thread_pool_not_too_large():
+    """ThreadPoolExecutor max_workers must be ≤2 to prevent concurrent OOM collects."""
+    import inspect
+    src = inspect.getsource(__import__("backend.src.mcp.orchestrator", fromlist=["orchestrator"]))
+    import re as _re
+    m = _re.search(r"ThreadPoolExecutor\(max_workers=(\d+)", src)
+    assert m, "ThreadPoolExecutor not found in orchestrator"
+    workers = int(m.group(1))
+    assert workers <= 2, (
+        f"ThreadPoolExecutor max_workers={workers} — reduce to ≤2 to prevent concurrent OOM"
+    )
 
 
 # ── 11. context_assembler.strip_delimiters ────────────────────────────────────

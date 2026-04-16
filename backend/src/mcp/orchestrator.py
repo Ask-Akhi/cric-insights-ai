@@ -20,6 +20,7 @@ Design goals:
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import re
 import time
@@ -39,7 +40,7 @@ log = logging.getLogger("mcp.orchestrator")
 _QUOTA_SENTINEL = "daily usage limit"
 
 # Thread pool for running sync tool handlers in parallel
-_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcp-tool")
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mcp-tool")
 
 # ── Team aliases for entity extraction ─────────────────────────────────────────
 TEAM_ALIASES: dict[str, str] = {
@@ -561,7 +562,7 @@ async def run(query: str, context: dict[str, Any] | None = None) -> AskResult:
       Phase B: (only if needed) web search → context assembly → single LLM call
 
     Tracks elapsed wall time so the LLM call never exceeds the remaining
-    budget (Railway hard-kills at 60s).
+    budget (Render hard-kills at 60s).
     """
     from ..services.circuit_breaker import gemini_breaker
 
@@ -822,7 +823,9 @@ async def _execute_tools(tool_calls: list[dict[str, Any]], per_tool_timeout: flo
             )
 
     tasks = [_run_one(tc) for tc in tool_calls]
-    return list(await asyncio.gather(*tasks))
+    results = list(await asyncio.gather(*tasks))
+    gc.collect()
+    return results
 
 
 async def _execute_single_tool(name: str, arguments: dict, timeout: float | None = None) -> ToolResult:
@@ -929,7 +932,7 @@ def _call_gemini(prompt: str, max_output_tokens: int, timeout: float = 30) -> st
     from backend.src.services.llm_settings import GEMINI_API_KEY
 
     if not GEMINI_API_KEY:
-        return "❌ GEMINI_API_KEY not set. Please configure it in Railway Variables."
+        return "❌ GEMINI_API_KEY not set. Please configure it in Render → Environment."
 
     from google import genai
     from google.genai import types

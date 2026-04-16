@@ -191,7 +191,7 @@ def head_to_head(batter: str, bowler: str, format: str = "T20") -> str:
             else:
                 q = q.filter(pl.col("format") == format)
 
-        df = q.collect()
+        df = q.head(10_000).collect(streaming=True)
         if df.is_empty():
             return f"No head-to-head data found for {batter} vs {bowler} in {format}."
 
@@ -418,8 +418,8 @@ def top_players(
                 .with_columns([
                     (pl.col("runs") / pl.col("balls") * 100).round(1).alias("strike_rate"),
                     (pl.col("runs") / (pl.col("dismissals") + 0.001)).round(1).alias("average"),
-                ])
-                .collect()
+                ]                )
+                .collect(streaming=True)
             )
 
             sort_col = {
@@ -491,8 +491,8 @@ def top_players(
                     (pl.col("runs_conceded") / (pl.col("legal_balls") / 6 + 0.001)).round(2).alias("economy"),
                     (pl.col("runs_conceded") / (pl.col("wickets") + 0.001)).round(1).alias("average"),
                     (pl.col("legal_balls") / (pl.col("wickets") + 0.001)).round(1).alias("strike_rate"),
-                ])
-                .collect()
+                ]                )
+                .collect(streaming=True)
             )
 
             sort_col = {

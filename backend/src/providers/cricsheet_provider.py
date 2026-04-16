@@ -15,17 +15,13 @@ DATA_DIR = os.environ.get("CRICSHEET_DATA_DIR", _default_data)
 RAW_DIR = os.path.join(DATA_DIR, "raw")
 PARQUET_DIR = os.path.join(DATA_DIR, "parquet")
 
-# Global lock so only one thread downloads/parses at a time
 _DOWNLOAD_LOCK = threading.Lock()
-# Track download state: None = not started, True = succeeded, False = failed
 _DOWNLOAD_RESULT: bool | None = None
-# Set to True while a download thread is running — prevents duplicate threads
 _DOWNLOAD_RUNNING = False
 
-# Columns that must exist in every loaded LazyFrame
 REQUIRED_COLS = [
     "match_id", "gender", "season", "start_date", "venue", "city",
-    "format",           # aliased from match_type on load
+    "format",
     "competition", "toss_winner", "toss_decision", "winner",
     "innings", "over", "batting_team", "batter", "non_striker", "bowler",
     "runs_off_bat", "extras", "wides", "noballs", "byes", "legbyes",
@@ -47,37 +43,25 @@ class CricsheetProvider(BaseDataProvider):
         return sorted(paths)
 
     def _ensure_data(self):
-        """Fire a one-shot daemon thread to download Cricsheet data if missing.
-
-        Returns immediately — the health endpoint is NEVER blocked.
-        The download runs in the background; the first few API calls that need
-        data will get empty results until it completes (~2-4 min on Railway).
-
-        Improvements over the original:
-        - Allows retry if a previous download FAILED (not just "started")
-        - Tracks success/failure state for health endpoint visibility
-        """
+        """Fire a one-shot daemon thread to download Cricsheet data if missing."""
         global _DOWNLOAD_RUNNING, _DOWNLOAD_RESULT
         if self._collect_parquet_paths():
-            _DOWNLOAD_RESULT = True  # data exists (baked at build or prior download)
+            _DOWNLOAD_RESULT = True
             return
 
         with _DOWNLOAD_LOCK:
-            # Re-check after lock acquisition
             if self._collect_parquet_paths():
                 _DOWNLOAD_RESULT = True
                 return
-            # Don't start a new thread if one is already running
             if _DOWNLOAD_RUNNING:
                 return
-            # If a previous download failed, allow retry
             if _DOWNLOAD_RESULT is True:
                 return
             _DOWNLOAD_RUNNING = True
 
         def _run_download():
             global _DOWNLOAD_RUNNING, _DOWNLOAD_RESULT
-            log.info("📥 No Cricsheet data found — downloading male dataset in background …")
+            log.info("No Cricsheet data found - downloading male dataset in background")
             try:
                 repo_root = os.path.abspath(
                     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
@@ -90,13 +74,13 @@ class CricsheetProvider(BaseDataProvider):
                     cwd=repo_root,
                 )
                 if result.returncode == 0:
-                    log.info("✅ Cricsheet download complete — data now available")
+                    log.info("Cricsheet download complete")
                     _DOWNLOAD_RESULT = True
                 else:
-                    log.warning("⚠️  Cricsheet download failed:\n%s", result.stderr[-500:])
+                    log.warning("Cricsheet download failed: %s", result.stderr[-500:])
                     _DOWNLOAD_RESULT = False
             except Exception as e:
-                log.warning("⚠️  Cricsheet download error: %s", e)
+                log.warning("Cricsheet download error: %s", e)
                 _DOWNLOAD_RESULT = False
             finally:
                 _DOWNLOAD_RUNNING = False
@@ -107,8 +91,6 @@ class CricsheetProvider(BaseDataProvider):
     def load(self):
         os.makedirs(RAW_DIR, exist_ok=True)
         os.makedirs(PARQUET_DIR, exist_ok=True)
-
-        # Download data lazily if no parquet files exist yet
         self._ensure_data()
 
         paths = self._collect_parquet_paths()
@@ -121,17 +103,12 @@ class CricsheetProvider(BaseDataProvider):
             try:
                 lf = pl.scan_parquet(p)
                 schema = lf.collect_schema().names()
-
-                # Rename match_type → format (parse_cricsheet.py writes "match_type")
                 if "match_type" in schema and "format" not in schema:
                     lf = lf.rename({"match_type": "format"})
                     schema = [("format" if c == "match_type" else c) for c in schema]
-
-                # Inject missing columns as nulls so concat works
                 for col in REQUIRED_COLS:
                     if col not in schema:
                         lf = lf.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
-
                 frames.append(lf)
             except Exception:
                 continue
@@ -144,18 +121,14 @@ class CricsheetProvider(BaseDataProvider):
         self.datasets["balls"] = lf
         self.loaded = True
 
-    # ── Public API ──────────────────────────────────────────────────────────
-
     @property
     def has_data(self) -> bool:
-        """True when parquet data is loaded and available for queries."""
         if not self.loaded:
             return False
         return "balls" in self.datasets
 
     @staticmethod
     def data_status() -> dict:
-        """Return data availability status for health/admin endpoints."""
         return {
             "download_running": _DOWNLOAD_RUNNING,
             "download_result": _DOWNLOAD_RESULT,
@@ -178,11 +151,10 @@ class CricsheetProvider(BaseDataProvider):
         ]).unique(subset=["match_id"])
         if formats:
             q = q.filter(pl.col("format").is_in(list(formats)))
-        return q.sort("start_date", descending=True).collect().to_dict(as_series=False)
+        return q.sort("start_date", descending=True).collect(streaming=True).to_dict(as_series=False)
 
-    # Columns needed by downstream stat aggregations — selecting only these
-    # avoids materialising the full wide parquet row for every ball.
-    # Saves ~60-80 % RAM on 512 MB containers (Render starter / Railway hobby).
+    # Slim column projection — avoids materialising the full wide parquet row for
+    # every ball. Saves ~60-80% RAM on 512 MB Render starter containers.
     _SLIM_COLS = [
         "match_id", "format", "competition", "season", "start_date",
         "venue", "city", "innings", "over", "batting_team",
@@ -191,6 +163,9 @@ class CricsheetProvider(BaseDataProvider):
         "wicket_type", "player_dismissed",
         "toss_winner", "toss_decision", "winner", "gender",
     ]
+
+    # Hard row cap — prevents OOM when IPL team queries return 200k+ rows.
+    _MAX_ROWS = 50_000
 
     def _slim(self, lf: pl.LazyFrame) -> pl.LazyFrame:
         """Project only the columns downstream code actually uses."""
@@ -204,43 +179,43 @@ class CricsheetProvider(BaseDataProvider):
         if lf is None:
             return pl.DataFrame()
         lf_slim = self._slim(lf)
-        # First try exact match (fast path)
         q = lf_slim.filter(
             (pl.col("batter") == player_name)
             | (pl.col("bowler") == player_name)
             | (pl.col("player_dismissed") == player_name)
         )
-        df = q.collect()
+        df = q.head(self._MAX_ROWS).collect(streaming=True)
         if not df.is_empty():
             return df
-        # Fallback: case-insensitive substring match on batter/bowler columns
+        # Fallback: case-insensitive substring match
         name_lower = player_name.lower()
         q2 = lf_slim.filter(
             pl.col("batter").str.to_lowercase().str.contains(name_lower)
             | pl.col("bowler").str.to_lowercase().str.contains(name_lower)
         )
-        return q2.collect()
+        return q2.head(self._MAX_ROWS).collect(streaming=True)
 
     def list_players(self, q: str | None = None, limit: int = 100) -> List[str]:
-        """Return distinct player names (batters + bowlers), optionally filtered."""
+        """Return distinct player names. Filter applied early to avoid RAM spikes."""
         if not self.loaded:
             self.load()
         lf = self.datasets.get("balls")
         if lf is None:
             return []
-        batters = lf.select(pl.col("batter").alias("name")).unique()
-        bowlers = lf.select(pl.col("bowler").alias("name")).unique()
+        lf_b = lf.select(pl.col("batter").alias("name"))
+        lf_w = lf.select(pl.col("bowler").alias("name"))
+        if q:
+            q_lower = q.lower()
+            lf_b = lf_b.filter(pl.col("name").str.to_lowercase().str.contains(q_lower))
+            lf_w = lf_w.filter(pl.col("name").str.to_lowercase().str.contains(q_lower))
         combined = (
-            pl.concat([batters, bowlers], how="vertical")
+            pl.concat([lf_b, lf_w], how="vertical")
             .filter(pl.col("name").is_not_null())
             .unique()
             .sort("name")
+            .limit(limit)
         )
-        if q:
-            combined = combined.filter(
-                pl.col("name").str.to_lowercase().str.contains(q.lower())
-            )
-        return combined.limit(limit).collect().get_column("name").to_list()
+        return combined.collect(streaming=True).get_column("name").to_list()
 
     def get_venue_stats(self, venue: str, fmt: str | None = None) -> pl.DataFrame:
         """Ball-by-ball rows for a specific venue."""
@@ -255,18 +230,17 @@ class CricsheetProvider(BaseDataProvider):
             from ..core.config import FORMAT_EXPANSION
             allowed = FORMAT_EXPANSION.get(fmt, [fmt])
             q = q.filter(pl.col("format").is_in(allowed))
-        return q.collect()
+        return q.head(self._MAX_ROWS).collect(streaming=True)
 
     def get_head_to_head(self, team_a: str, team_b: str,
                          fmt: str | None = None) -> pl.DataFrame:
-        """Matches where both team_a and team_b appear (handles renamed teams)."""
+        """Head-to-head balls for two teams. Pure Polars semi-join — no iter_rows()."""
         if not self.loaded:
             self.load()
         lf = self.datasets.get("balls")
         if lf is None:
             return pl.DataFrame()
 
-        # Expand team names to include historical variants (e.g. RCB Bangalore/Bengaluru)
         from ..core.config import expand_team_names
         names_a = expand_team_names(team_a)
         names_b = expand_team_names(team_b)
@@ -278,21 +252,26 @@ class CricsheetProvider(BaseDataProvider):
             from ..core.config import FORMAT_EXPANSION
             allowed = FORMAT_EXPANSION.get(fmt, [fmt])
             q = q.filter(pl.col("format").is_in(allowed))
-        df = q.collect()
-        if df.is_empty():
-            return df
+
+        # Identify match_ids where BOTH teams appear — stays lazy until collect().
         match_teams = (
-            df.group_by("match_id")
-            .agg(pl.col("batting_team").unique().alias("teams"))
+            q.select("match_id", "batting_team")
+            .unique()
+            .with_columns([
+                pl.col("batting_team").is_in(names_a).alias("_is_a"),
+                pl.col("batting_team").is_in(names_b).alias("_is_b"),
+            ])
+            .group_by("match_id")
+            .agg([
+                pl.col("_is_a").any().alias("_has_a"),
+                pl.col("_is_b").any().alias("_has_b"),
+            ])
+            .filter(pl.col("_has_a") & pl.col("_has_b"))
+            .select("match_id")
         )
-        # A match counts if it has at least one name variant from each side
-        both_ids = []
-        for row in match_teams.iter_rows(named=True):
-            teams_in_match = set(row["teams"])
-            has_a = bool(teams_in_match & set(names_a))
-            has_b = bool(teams_in_match & set(names_b))
-            if has_a and has_b:
-                both_ids.append(row["match_id"])
-        if not both_ids:
-            return pl.DataFrame()
-        return df.filter(pl.col("match_id").is_in(both_ids))
+
+        return (
+            q.join(match_teams, on="match_id", how="semi")
+            .head(self._MAX_ROWS)
+            .collect(streaming=True)
+        )

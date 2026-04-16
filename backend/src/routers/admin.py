@@ -30,7 +30,7 @@ _refresh_state: dict = {
 def _require_key(key: Optional[str]) -> None:
     secret = os.environ.get("ADMIN_KEY", "")
     if not secret:
-        raise HTTPException(status_code=503, detail="ADMIN_KEY not configured. Set it in Railway Variables.")
+        raise HTTPException(status_code=503, detail="ADMIN_KEY not configured. Set it in Render → Environment.")
     if key != secret:
         raise HTTPException(status_code=403, detail="Invalid admin key.")
 

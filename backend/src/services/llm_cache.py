@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CACHE_TTL = 1800        # 30 min — short enough for current-season freshness
-CACHE_MAX_ENTRIES = 200  # evict oldest when full
+CACHE_MAX_ENTRIES = 50   # evict oldest when full (low for 512 MB containers)
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 _store: Dict[str, Dict[str, Any]] = {}
