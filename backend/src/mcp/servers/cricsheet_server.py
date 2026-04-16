@@ -391,6 +391,12 @@ def top_players(
                 allowed = FORMAT_EXPANSION.get(format, [format])
             lf = lf.filter(pl.col("format").is_in(allowed))
 
+        # Project only needed columns to cut memory on 512 MB containers
+        if role == "batting":
+            lf = lf.select(["match_id", "batter", "runs_off_bat", "player_dismissed"])
+        else:
+            lf = lf.select(["match_id", "bowler", "runs_off_bat", "wides", "player_dismissed"])
+
         if role == "batting":
             # Aggregate per batter — apply min_innings AND min_runs to avoid
             # obscure players with tiny samples dominating strike-rate rankings.

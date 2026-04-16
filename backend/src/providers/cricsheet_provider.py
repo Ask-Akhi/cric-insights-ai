@@ -180,14 +180,32 @@ class CricsheetProvider(BaseDataProvider):
             q = q.filter(pl.col("format").is_in(list(formats)))
         return q.sort("start_date", descending=True).collect().to_dict(as_series=False)
 
+    # Columns needed by downstream stat aggregations — selecting only these
+    # avoids materialising the full wide parquet row for every ball.
+    # Saves ~60-80 % RAM on 512 MB containers (Render starter / Railway hobby).
+    _SLIM_COLS = [
+        "match_id", "format", "competition", "season", "start_date",
+        "venue", "city", "innings", "over", "batting_team",
+        "batter", "non_striker", "bowler",
+        "runs_off_bat", "extras", "wides", "noballs",
+        "wicket_type", "player_dismissed",
+        "toss_winner", "toss_decision", "winner", "gender",
+    ]
+
+    def _slim(self, lf: pl.LazyFrame) -> pl.LazyFrame:
+        """Project only the columns downstream code actually uses."""
+        available = lf.collect_schema().names()
+        return lf.select([c for c in self._SLIM_COLS if c in available])
+
     def get_player_events(self, player_name: str) -> pl.DataFrame:
         if not self.loaded:
             self.load()
         lf = self.datasets.get("balls")
         if lf is None:
             return pl.DataFrame()
+        lf_slim = self._slim(lf)
         # First try exact match (fast path)
-        q = lf.filter(
+        q = lf_slim.filter(
             (pl.col("batter") == player_name)
             | (pl.col("bowler") == player_name)
             | (pl.col("player_dismissed") == player_name)
@@ -197,7 +215,7 @@ class CricsheetProvider(BaseDataProvider):
             return df
         # Fallback: case-insensitive substring match on batter/bowler columns
         name_lower = player_name.lower()
-        q2 = lf.filter(
+        q2 = lf_slim.filter(
             pl.col("batter").str.to_lowercase().str.contains(name_lower)
             | pl.col("bowler").str.to_lowercase().str.contains(name_lower)
         )
@@ -231,7 +249,8 @@ class CricsheetProvider(BaseDataProvider):
         lf = self.datasets.get("balls")
         if lf is None:
             return pl.DataFrame()
-        q = lf.filter(pl.col("venue").str.to_lowercase().str.contains(venue.lower()))
+        lf_slim = self._slim(lf)
+        q = lf_slim.filter(pl.col("venue").str.to_lowercase().str.contains(venue.lower()))
         if fmt:
             from ..core.config import FORMAT_EXPANSION
             allowed = FORMAT_EXPANSION.get(fmt, [fmt])
@@ -253,7 +272,8 @@ class CricsheetProvider(BaseDataProvider):
         names_b = expand_team_names(team_b)
         all_names = list(set(names_a + names_b))
 
-        q = lf.filter(pl.col("batting_team").is_in(all_names))
+        lf_slim = self._slim(lf)
+        q = lf_slim.filter(pl.col("batting_team").is_in(all_names))
         if fmt:
             from ..core.config import FORMAT_EXPANSION
             allowed = FORMAT_EXPANSION.get(fmt, [fmt])

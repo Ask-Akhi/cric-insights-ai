@@ -26,7 +26,7 @@ ENV LLM_PROVIDER=gemini \
     FRONTEND_DIST=/app/frontend/dist \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
-    POLARS_MAX_THREADS=2 \
+    POLARS_MAX_THREADS=1 \
     PIP_NO_CACHE_DIR=1
 
 # ── Python deps — production only (no pytest, no pyarrow) ─────────────────────
