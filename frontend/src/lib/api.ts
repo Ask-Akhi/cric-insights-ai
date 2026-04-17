@@ -3,7 +3,7 @@ export type AskIntent =
   // new MCP intents from orchestrator.py
   | 'batting_stats' | 'bowling_stats' | 'live' | 'toss' | 'venue'
   | 'head_to_head' | 'form' | 'recent' | 'prediction'
-export type AskMode  = 'graph' | 'direct' | 'fallback' | 'grounded' | 'mcp' | 'agent' | 'agent_stream' | 'orchestrator_fallback' | 'circuit_breaker' | 'error'
+export type AskMode  = 'graph' | 'direct' | 'fallback' | 'grounded' | 'mcp' | 'agent' | 'agent_stream' | 'fastpath' | 'orchestrator_fallback' | 'circuit_breaker' | 'error'
 
 export interface AskPayload {
   prompt: string

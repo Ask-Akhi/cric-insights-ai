@@ -100,6 +100,37 @@ async def ask(req: AskRequest):
                                "detail": ""}},
         )
 
+    # ── 2b. Fast-path: regex intent → direct Postgres query → skip LLM ────
+    # For obvious stat queries ("MI vs CSK", "Kohli T20 stats", "top batters IPL")
+    # we classify intent via regex and hit the DB directly. Zero LLM calls,
+    # <100ms latency. Only ambiguous queries fall through to the agent.
+    try:
+        from ..mcp.fastpath import try_fastpath
+        fp = await try_fastpath(req.prompt, ctx)
+    except Exception as exc:
+        log.warning("fastpath crashed (non-fatal): %s", exc)
+        fp = None
+
+    if fp is not None:
+        resp_dict: Dict[str, Any] = dict(
+            answer        = fp.answer,
+            intent        = fp.intent,
+            players       = [],
+            mode          = fp.mode,          # "fastpath"
+            data_sources  = fp.data_sources,
+            latency_ms    = fp.latency_ms,
+            rag_cache_hit = False,
+            tools_used    = fp.tools_used,
+        )
+        await _write_cache(req.prompt, req.grounded, fmt, resp_dict)
+        token_tracker.record(
+            prompt=req.prompt, response=fp.answer,
+            intent=fp.intent, grounded=req.grounded,
+        )
+        log.info("ask FASTPATH %dms — intent=%s tools=%s",
+                 fp.latency_ms, fp.intent, fp.tools_used)
+        return AskResponse(**resp_dict)
+
     # ── 3. Agent pipeline ─────────────────────────────────────────────────
     try:
         result = await asyncio.wait_for(
