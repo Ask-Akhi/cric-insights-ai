@@ -26,7 +26,9 @@ async def lifespan(app: FastAPI):
     log.info("Cric Insights API ready on PORT=%s uptime=%.1fs", port, time.time() - _START_TIME)
     log.info("FRONTEND_DIST=%s exists=%s", DIST_DIR, os.path.isdir(DIST_DIR))
     if not os.environ.get("GEMINI_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
-        log.warning("No LLM API key set — add GEMINI_API_KEY in Render → Environment")
+        log.warning("No LLM API key set — add GEMINI_API_KEY in Render → Environment")    # ── PostgreSQL pool (no-op if DATABASE_URL is not set) ───────────────
+    from .db.connection import get_pool, close_pool
+    await get_pool()   # warms the pool; logs whether DB is available
 
     # Start periodic Cricsheet data refresh (default: every 6h, 0 = disabled)
     from .services import data_refresh_scheduler
@@ -34,8 +36,9 @@ async def lifespan(app: FastAPI):
 
     yield  # application runs here
 
-    # Shutdown: cancel the refresh scheduler
+    # Shutdown
     await data_refresh_scheduler.stop()
+    await close_pool()
 
 app = FastAPI(title="Cric Insights API", lifespan=lifespan)
 

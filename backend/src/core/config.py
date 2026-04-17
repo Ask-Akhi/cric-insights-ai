@@ -60,7 +60,29 @@ class Settings:
     )
     mcp_tool_timeout_s: int = 10
     mcp_max_context_tokens: int = 6000
-    mcp_llm_fallback_min_words: int = 4  # min words before LLM tool-picker fires    # ── Admin ──────────────────────────────────────────────
+    mcp_llm_fallback_min_words: int = 4  # min words before LLM tool-picker fires
+
+    # ── Database (PostgreSQL via asyncpg) ───────────────────
+    # Set DATABASE_URL to enable Phase 1 (PostgreSQL mode).
+    # Leave unset to run in Polars-fallback mode (backward-compatible).
+    database_url: str = field(
+        default_factory=lambda: os.getenv("DATABASE_URL", "")
+    )
+    db_pool_min: int = 1
+    db_pool_max: int = 5   # keep low for Render Starter 512 MB
+
+    # ── Redis (Upstash HTTP cache) ──────────────────────────
+    # Set both vars to enable distributed Redis cache.
+    # Falls back to in-process LRU when unset.
+    upstash_redis_rest_url: str = field(
+        default_factory=lambda: os.getenv("UPSTASH_REDIS_REST_URL", "")
+    )
+    upstash_redis_rest_token: str = field(
+        default_factory=lambda: os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+    )    # ── Agent ───────────────────────────────────────────────
+    agent_max_steps: int = 5   # max LLM ↔ tool round-trips
+
+    # ── Admin ───────────────────────────────────────────────
     admin_key: str = field(
         default_factory=lambda: os.getenv("ADMIN_KEY", "")
     )

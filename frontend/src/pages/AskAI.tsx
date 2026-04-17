@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import ToolShell from '../components/ToolShell'
 import PlayerCharts from '../components/PlayerCharts'
-import { callAsk, callPlayerStats, callPlayerDetect, PlayerStats } from '../lib/api'
+import { callAsk, callAskStream, callPlayerStats, callPlayerDetect, PlayerStats } from '../lib/api'
 
 interface Props { apiBase: string; format: string; grounded: boolean; onQuestionAsked?: () => void }
 
@@ -99,9 +99,8 @@ export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Pr
   const handleChip = (chip: string) => {
     setQuestion(chip.replace(/\{format\}/g, format))
   }
-
   const handleSubmit = async () => {
-    // Use players list returned by the AI response to confirm/update chart player
+    // Fallback blocking path (used if SSE unavailable)
     const result = await callAsk(apiBase, {
       prompt: question,
       context: { format },
@@ -123,6 +122,20 @@ export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Pr
     }
 
     return result
+  }
+
+  const handleStreamSubmit = (
+    onChunk: (c: string) => void,
+    onDone:  (full: string) => void,
+    onError: (err: string) => void,
+  ) => {
+    return callAskStream(
+      apiBase,
+      { prompt: question, context: { format }, grounded },
+      onChunk,
+      onDone,
+      onError,
+    )
   }
 
   // Side panel shown when a player was detected
@@ -147,12 +160,14 @@ export default function AskAI({ apiBase, format, grounded, onQuestionAsked }: Pr
       )}
     </>
   ) : undefined
+
   return (
     <ToolShell
       icon="💬"
       title="Ask the Cricket AI"
       subtitle="Free-form cricket questions — stats, fantasy, predictions, tactics"
       onSubmit={handleSubmit}
+      onStreamSubmit={handleStreamSubmit}
       onQuestionAsked={onQuestionAsked}
       sidePanel={chartsPanel}
       sidePanelReady={(chartLoading || !!chartData) && !!chartPlayer}

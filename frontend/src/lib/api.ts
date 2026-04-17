@@ -3,7 +3,7 @@ export type AskIntent =
   // new MCP intents from orchestrator.py
   | 'batting_stats' | 'bowling_stats' | 'live' | 'toss' | 'venue'
   | 'head_to_head' | 'form' | 'recent' | 'prediction'
-export type AskMode  = 'graph' | 'direct' | 'fallback' | 'grounded' | 'mcp'
+export type AskMode  = 'graph' | 'direct' | 'fallback' | 'grounded' | 'mcp' | 'agent' | 'agent_stream' | 'orchestrator_fallback' | 'circuit_breaker' | 'error'
 
 export interface AskPayload {
   prompt: string
@@ -87,7 +87,6 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
     const text = await res.text()
     throw parseApiError(res.status, text)
   }
-
   const json = await res.json()
   return {
     answer:        json.answer        ?? '',
@@ -98,6 +97,97 @@ export async function callAsk(apiBase: string, payload: AskPayload): Promise<Ask
     latency_ms:    json.latency_ms    ?? 0,
     rag_cache_hit: json.rag_cache_hit ?? false,
   }
+}
+
+/**
+ * Stream the AI answer via SSE (POST /api/ask/stream).
+ *
+ * @param onChunk   Called with each incremental text chunk as it arrives.
+ * @param onDone    Called once the stream completes (receives the full answer).
+ * @param onError   Called when an error is received mid-stream.
+ * @returns         An AbortController so the caller can cancel early.
+ *
+ * Usage:
+ *   const ctrl = callAskStream(apiBase, payload, setPartialAnswer, setFinalAnswer, setError)
+ *   // cancel: ctrl.abort()
+ */
+export function callAskStream(
+  apiBase: string,
+  payload: AskPayload,
+  onChunk: (chunk: string) => void,
+  onDone: (full: string) => void,
+  onError: (err: string) => void,
+): AbortController {
+  const controller = new AbortController()
+
+  ;(async () => {
+    let res: Response
+    try {
+      res = await fetch(`${apiBase}/api/ask/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ use_graph: true, ...payload }),
+        signal: controller.signal,
+      })
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      onError('Failed to reach the server. Check your connection.')
+      return
+    }
+
+    if (!res.ok) {
+      const text = await res.text()
+      onError(parseApiError(res.status, text).message)
+      return
+    }
+
+    const reader  = res.body!.getReader()
+    const decoder = new TextDecoder()
+    const chunks: string[] = []
+    let   buffer  = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''   // keep incomplete last line
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          const raw = line.slice(5).trim()
+          if (raw === '[DONE]') {
+            onDone(chunks.join(''))
+            return
+          }
+          try {
+            const evt = JSON.parse(raw) as { chunk?: string; error?: string }
+            if (evt.error) {
+              onError(evt.error)
+              return
+            }
+            if (evt.chunk) {
+              chunks.push(evt.chunk)
+              onChunk(evt.chunk)
+            }
+          } catch {
+            // malformed SSE line — ignore
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      onError(String(err))
+      return
+    }
+
+    // Stream ended without [DONE] — still deliver what we have
+    onDone(chunks.join(''))
+  })()
+
+  return controller
 }
 
 

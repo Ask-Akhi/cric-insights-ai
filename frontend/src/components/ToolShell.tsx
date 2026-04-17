@@ -9,7 +9,18 @@ interface Props {
   icon: string
   title: string
   subtitle?: string
+  /** Blocking submit — used by all tools except AskAI streaming path */
   onSubmit: () => Promise<{ answer: string; intent?: AskIntent; players?: string[]; mode?: AskMode; data_sources?: string[]; latency_ms?: number; rag_cache_hit?: boolean } | string>
+  /**
+   * SSE streaming submit — if provided, AskAI uses this instead of onSubmit.
+   * Should kick off a stream and return an AbortController for cancellation.
+   * Calls the three callbacks as tokens arrive / complete / error.
+   */
+  onStreamSubmit?: (
+    onChunk: (c: string) => void,
+    onDone:  (full: string) => void,
+    onError: (err: string) => void,
+  ) => AbortController
   onQuestionAsked?: () => void
   children: React.ReactNode
   sidePanel?: React.ReactNode
@@ -73,12 +84,17 @@ function ThinkingSteps({ elapsed }: { elapsed: number }) {
 }
 
 function ModeBadge({ mode }: { mode: AskMode }) {
-  const cfg: Record<AskMode, { label: string; color: string }> = {
-    graph:    { label: '✦ Deep Analysis', color: '#a78bfa' },
-    direct:   { label: '⚡ Quick Answer', color: '#60a5fa' },
-    fallback: { label: '🔄 Fallback',     color: '#f87171' },
-    grounded: { label: '🌐 Web-grounded', color: '#34d399' },
-    mcp:      { label: '🔧 MCP',          color: '#fb923c' },
+  const cfg: Record<string, { label: string; color: string }> = {
+    graph:                { label: '✦ Deep Analysis',    color: '#a78bfa' },
+    direct:               { label: '⚡ Quick Answer',    color: '#60a5fa' },
+    fallback:             { label: '🔄 Fallback',        color: '#f87171' },
+    grounded:             { label: '🌐 Web-grounded',    color: '#34d399' },
+    mcp:                  { label: '🔧 MCP',             color: '#fb923c' },
+    agent:                { label: '🤖 Agent',           color: '#fb923c' },
+    agent_stream:         { label: '🤖 Streamed',        color: '#fb923c' },
+    orchestrator_fallback:{ label: '🔄 Legacy',          color: '#f87171' },
+    circuit_breaker:      { label: '⚡ Circuit Breaker', color: '#fbbf24' },
+    error:                { label: '❌ Error',           color: '#f87171' },
   }
   const c = cfg[mode] ?? cfg.direct
   return (
@@ -112,12 +128,13 @@ function AnswerBlock({ answer, isCached }: { answer: string; isCached: boolean }
   )
 }
 
-export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {
+export default function ToolShell({ icon, title, subtitle, onSubmit, onStreamSubmit, onQuestionAsked, children, sidePanel, sidePanelReady }: Props) {
   const [loading, setLoading]         = useState(false)
+  const [streaming, setStreaming]     = useState(false)   // true while SSE tokens are arriving
   const [answer, setAnswer]           = useState<string | null>(null)
   const [intent, setIntent]           = useState<AskIntent>('general')
   const [players, setPlayers]         = useState<string[]>([])
-  const [mode, setMode]               = useState<AskMode>('graph')
+  const [mode, setMode]               = useState<AskMode>('agent')
   const [dataSources, setDataSources] = useState<string[]>([])
   const [error, setError]             = useState<string | null>(null)
   const [retryWithGraph, setRetryWithGraph] = useState(false)
@@ -125,13 +142,48 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
   const [copied, setCopied]           = useState(false)
   const [serverLatency, setServerLatency] = useState<number | null>(null)
   const [ragCacheHit, setRagCacheHit]     = useState(false)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const streamCtrl  = useRef<AbortController | null>(null)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setAnswer(null); setError(null); setElapsed(0); setLoading(true); setCopied(false)
+    setAnswer(null); setError(null); setElapsed(0); setLoading(true)
+    setCopied(false); setStreaming(false)
     setDataSources([]); setServerLatency(null); setRagCacheHit(false); setRetryWithGraph(false)
     const start = Date.now()
     timerRef.current = setInterval(() => setElapsed(Date.now() - start), 100)
+
+    // ── Streaming path (AskAI) ────────────────────────────────────────────
+    if (onStreamSubmit) {
+      setLoading(false)
+      setStreaming(true)
+      setAnswer('')   // start empty so the cursor shows immediately
+      setMode('agent_stream')
+
+      streamCtrl.current = onStreamSubmit(
+        // onChunk — append each token
+        (chunk) => setAnswer(prev => (prev ?? '') + chunk),
+        // onDone — stream complete; stop cursor
+        (full) => {
+          clearInterval(timerRef.current!)
+          setElapsed(Date.now() - start)
+          setStreaming(false)
+          setAnswer(full || '(no answer)')
+          setServerLatency(Date.now() - start)
+          onQuestionAsked?.()
+        },
+        // onError
+        (err) => {
+          clearInterval(timerRef.current!)
+          setStreaming(false)
+          setLoading(false)
+          setError(err)
+        },
+      )
+      return
+    }
+
+    // ── Blocking path (all other tools) ───────────────────────────────────
     try {
       const result = await onSubmit()
       if (typeof result === 'string') {
@@ -140,26 +192,27 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
         setAnswer(result.answer)
         setIntent(result.intent ?? 'general')
         setPlayers(result.players ?? [])
-        setMode(result.mode ?? 'graph')
+        setMode(result.mode ?? 'agent')
         setDataSources(result.data_sources ?? [])
         setServerLatency(result.latency_ms ?? null)
         setRagCacheHit(result.rag_cache_hit ?? false)
       }
-      onQuestionAsked?.()    } catch (err: unknown) {
+      onQuestionAsked?.()
+    } catch (err: unknown) {
       if (err instanceof CricketApiError) {
         setError(err.message)
         setRetryWithGraph(err.retryWithGraph)
       } else {
         setError(String(err))
-      }
-    } finally {
+      }    } finally {
       setLoading(false)
       if (timerRef.current) clearInterval(timerRef.current)
     }
   }
+
   const isCached   = answer?.startsWith('⚡')
   const showSide   = sidePanel && sidePanelReady
-  const hasResult  = loading || answer || error
+  const hasResult  = loading || streaming || answer !== null || !!error
   const intentCfg  = INTENT_CONFIG[intent] ?? INTENT_CONFIG.general
   const showEmpty  = !hasResult
 
@@ -182,8 +235,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
       {/* ── Form Card ── */}
       <div className="glass-strong p-6 space-y-5">
         <form onSubmit={handleSubmit} className="space-y-4">
-          {children}
-          <button type="submit" disabled={loading} className="btn-primary w-full">
+          {children}          <button type="submit" disabled={loading || streaming} className="btn-primary w-full">
             {loading ? (
               <>
                 <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -192,6 +244,24 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                 </svg>
                 Analysing… {(elapsed / 1000).toFixed(1)}s
               </>
+            ) : streaming ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="inline-flex gap-0.5">
+                  {[0,1,2].map(d => (
+                    <motion.span key={d} className="w-1.5 h-1.5 rounded-full bg-orange-300"
+                      animate={{ opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 0.9, delay: d * 0.2, repeat: Infinity }} />
+                  ))}
+                </span>
+                Streaming… {(elapsed / 1000).toFixed(1)}s
+                <button
+                  type="button"
+                  className="ml-2 text-[10px] px-2 py-0.5 rounded bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors"
+                  onClick={(e) => { e.preventDefault(); streamCtrl.current?.abort(); setStreaming(false); setLoading(false) }}
+                >
+                  ✕ Stop
+                </button>
+              </span>
             ) : <>{icon} Analyse</>}
           </button>
         </form>
@@ -223,8 +293,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
             initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }} transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
             className={showSide ? 'grid grid-cols-1 lg:grid-cols-2 gap-5 items-start' : ''}
-          >
-            {/* ── Left: AI text ── */}
+          >            {/* ── Left: AI text ── */}
             <div className="glass p-6">
               {loading ? (
                 <>
@@ -234,7 +303,25 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onQuestionA
                     <span className="text-xs text-slate-600 ml-auto font-mono">{(elapsed / 1000).toFixed(1)}s</span>
                   </div>
                   <ThinkingSteps elapsed={elapsed} />
-                </>              ) : error ? (
+                </>
+              ) : streaming && answer !== null ? (
+                /* ── Streaming: render tokens as they arrive ── */
+                <>
+                  <div className="flex items-center gap-2 mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span className="text-orange-400 text-xs font-semibold tracking-wide uppercase">💡 AI Analysis</span>
+                    <ModeBadge mode="agent_stream" />
+                    <span className="ml-auto text-xs text-slate-600 font-mono">{(elapsed / 1000).toFixed(1)}s</span>
+                  </div>
+                  <div className="prose-cricket">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}
+                      components={{ table: ({ children }) => <div className="table-scroll-wrapper"><table>{children}</table></div> }}>
+                      {answer}
+                    </ReactMarkdown>
+                    {/* blinking cursor */}
+                    <motion.span className="inline-block w-[2px] h-[1em] bg-orange-400 ml-0.5 align-text-bottom"
+                      animate={{ opacity: [1, 0] }} transition={{ duration: 0.6, repeat: Infinity, repeatType: 'reverse' }} />
+                  </div>
+                </>) : error ? (
                 <div className="flex items-start gap-3 text-sm">
                   {error.includes('API_KEY') || error.includes('not configured') ? (
                     <div className="w-full rounded-xl p-4 space-y-2" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
