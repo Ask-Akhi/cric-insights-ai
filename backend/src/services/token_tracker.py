@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 # Source: https://ai.google.dev/pricing  (as of 2026-Q1)
 _COST_PER_1M = {
     "gemini-2.5-flash":        {"input": 0.15, "output": 0.60},
+    "gemini-2.5-flash-8b":     {"input": 0.075, "output": 0.30},
     "gemini-2.0-flash":        {"input": 0.10, "output": 0.40},
     "gemini-2.0-flash-001":    {"input": 0.10, "output": 0.40},
     "gemini-2.0-flash-lite":   {"input": 0.075, "output": 0.30},

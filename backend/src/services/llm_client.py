@@ -40,11 +40,15 @@ def _max_tokens_for(prompt: str) -> int:
         return 1024
     return 2048
 
-# ─── Fallback models (verified available, best-first order) ───────────────
-# NOTE: gemini-2.0-flash* variants have been retired by Google and now return
-# 404. Keep the list to currently supported models only.
+# ─── Fallback models (best-first order, all verified non-retired) ────────
+# gemini-2.5-flash      — primary, best quality, may 503 under high demand
+# gemini-2.5-flash-8b   — lighter/faster variant, good fallback
+# gemini-2.0-flash-lite — smallest quota usage, last resort
+# NOTE: gemini-2.0-flash and gemini-2.0-flash-001 are RETIRED (404).
 GEMINI_FALLBACK_MODELS = [
     "gemini-2.5-flash",
+    "gemini-2.5-flash-8b",
+    "gemini-2.0-flash-lite",
 ]
 
 
@@ -176,8 +180,8 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     full_prompt = _build_prompt(prompt, context, grounded=grounded)
 
     # Grounding requires models that support it. Only currently supported
-    # (non-retired) models are listed here.
-    grounding_models = ["gemini-2.5-flash"]
+    # (non-retired) models that support Google Search grounding are listed.
+    grounding_models = ["gemini-2.5-flash", "gemini-2.5-flash-8b"]
     all_models = [LLM_MODEL] + [m for m in GEMINI_FALLBACK_MODELS if m != LLM_MODEL]
     models_to_try = [m for m in all_models if m in grounding_models] if grounded else all_models
 
