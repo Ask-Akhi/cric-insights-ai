@@ -18,11 +18,21 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional, TYPE_CHECKING
 
 log = logging.getLogger("mcp.agent")
 
 MAX_STEPS = 5   # max LLM ↔ tool round-trips per request
+
+# Type-only import — keeps startup fast but makes RunContext resolvable by
+# get_type_hints() when pydantic-ai evaluates the tool signatures at register time.
+if TYPE_CHECKING:
+    from pydantic_ai import RunContext
+else:
+    try:
+        from pydantic_ai import RunContext  # type: ignore
+    except ImportError:
+        RunContext = Any  # type: ignore
 
 # ── Lazy import guard ─────────────────────────────────────────────────────────
 _pydantic_ai_available: Optional[bool] = None
@@ -75,18 +85,23 @@ def _build_agent():
         return _agent
 
     from pydantic_ai import Agent, RunContext
-    from pydantic_ai.models.gemini import GeminiModel
-    from pydantic_ai.models.openai import OpenAIModel
     from ..core.config import settings
 
     # ── Model selection ───────────────────────────────────────────────────────
+    # pydantic-ai 1.x: API keys are passed via provider objects, not api_key=
     if settings.llm_provider == "openai" and settings.openai_api_key:
-        model = OpenAIModel(settings.llm_model or "gpt-4o-mini",
-                            api_key=settings.openai_api_key)
+        from pydantic_ai.models.openai import OpenAIModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+        model = OpenAIModel(
+            settings.llm_model or "gpt-4o-mini",
+            provider=OpenAIProvider(api_key=settings.openai_api_key),
+        )
     else:
-        model = GeminiModel(
+        from pydantic_ai.models.google import GoogleModel
+        from pydantic_ai.providers.google import GoogleProvider
+        model = GoogleModel(
             settings.llm_model or "gemini-2.0-flash",
-            api_key=settings.gemini_api_key,
+            provider=GoogleProvider(api_key=settings.gemini_api_key),
         )
 
     # ── System prompt ─────────────────────────────────────────────────────────
@@ -106,7 +121,8 @@ Rules:
     _agent = Agent(
         model,
         deps_type=CricketDeps,
-        output_type=str,        system_prompt=SYSTEM,
+        output_type=str,
+        system_prompt=SYSTEM,
     )
 
     # ── Tool registrations ────────────────────────────────────────────────────
