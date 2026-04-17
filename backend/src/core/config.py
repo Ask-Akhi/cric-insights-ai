@@ -24,7 +24,7 @@ class Settings:
         default_factory=lambda: os.getenv("LLM_PROVIDER", "gemini")
     )
     llm_model: str = field(
-        default_factory=lambda: os.getenv("LLM_MODEL", "gemini-2.0-flash")
+        default_factory=lambda: os.getenv("LLM_MODEL", "gemini-2.5-flash")
     )
     gemini_api_key: str = field(
         default_factory=lambda: os.getenv("GEMINI_API_KEY", "")

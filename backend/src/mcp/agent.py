@@ -100,7 +100,7 @@ def _build_agent():
         from pydantic_ai.models.google import GoogleModel
         from pydantic_ai.providers.google import GoogleProvider
         model = GoogleModel(
-            settings.llm_model or "gemini-2.0-flash",
+            settings.llm_model or "gemini-2.5-flash",
             provider=GoogleProvider(api_key=settings.gemini_api_key),
         )
 
