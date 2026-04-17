@@ -46,7 +46,7 @@ def _estimate_tokens(text: str) -> int:
 
 def record(
     *,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
     prompt: str = "",
     response: str = "",
     intent: str = "general",
