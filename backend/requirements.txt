@@ -1,3 +1,4 @@
+# filepath: backend/requirements.txt
 # Web framework
 fastapi>=0.115.5
 uvicorn[standard]>=0.30.1
@@ -19,8 +20,11 @@ pgvector>=0.3.0
 # httpx already covers Upstash REST API calls — no extra redis-py needed
 
 # ── Phase 3: PydanticAI agent ─────────────────────────────────────────────────
-# pydantic-ai v1.x — no LangChain/LangGraph dependency tree
-pydantic-ai>=1.0.0
+# Use the SLIM package with ONLY the providers we need (gemini + openai).
+# The full `pydantic-ai` meta-package pulls every provider (anthropic, bedrock,
+# cohere, temporal, xai, huggingface, tokenizers, boto3, fastmcp…) which both
+# explodes pip's resolver AND OOMs Render's 512 MB tier (>500 MB installed).
+pydantic-ai-slim[google,openai]>=1.0.0,<2.0.0
 
 # LLM clients — lazy-imported inside route handlers, not at startup
 google-genai>=1.66.0
