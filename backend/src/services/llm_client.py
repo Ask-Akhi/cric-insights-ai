@@ -113,6 +113,15 @@ def get_llm_response_grounded(prompt: str, context: Dict[str, Any] = {}) -> str:
     return get_llm_response(prompt, context)
 
 
+def _sanitize_error(err: str) -> str:
+    """Remove API keys and sensitive tokens from error messages before surfacing to clients."""
+    # Redact api_key:VALUE patterns (Google includes the key in 403 error bodies)
+    sanitized = re.sub(r"api_key:[A-Za-z0-9_\-]+", "api_key:[REDACTED]", err)
+    # Redact any remaining long alphanumeric tokens that look like keys (≥20 chars)
+    sanitized = re.sub(r"'[A-Za-z0-9_\-]{20,}'", "'[REDACTED]'", sanitized)
+    return sanitized
+
+
 def _clean_response(text: str) -> str:
     """Strip Gemini <think> blocks and biography-dump sentences from web grounding."""
     # Remove <think>...</think> reasoning blocks (Gemini 2.5 flash thinking mode)
@@ -269,7 +278,7 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                     # Quota exhaustion → all models share same key, fail fast
                     if "quota" in err.lower() or "exceeded" in err.lower() or "RESOURCE_EXHAUSTED" in err:
                         _logger.warning("Gemini quota exhausted — tripping circuit breaker")
-                        gemini_breaker.trip(reason=err[:120])
+                        gemini_breaker.trip(reason=_sanitize_error(err)[:120])
                         return _QUOTA_MSG
                     if attempt == 0:
                         time.sleep(2)
@@ -288,8 +297,8 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                     # Search not supported on this model — fall back without grounding
                     return _gemini_response(prompt, context, grounded=False)
                 else:
-                    _logger.warning("Gemini %s unexpected error: %s", model, err[:200])
-                    return f"❌ Gemini error: {err}"
+                    _logger.warning("Gemini %s unexpected error: %s", model, _sanitize_error(err)[:200])
+                    return f"❌ Gemini error: {_sanitize_error(err)}"
 
     if grounded:
         # All grounding-capable models exhausted — try without grounding
@@ -314,7 +323,7 @@ def _openai_response(prompt: str, context: Dict[str, Any]) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"❌ OpenAI error: {str(e)}"
+        return f"❌ OpenAI error: {_sanitize_error(str(e))}"
 
 
 def _build_prompt(prompt: str, context: Dict[str, Any], grounded: bool = False) -> str:
