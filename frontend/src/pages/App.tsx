@@ -34,7 +34,7 @@ function useQuestionCounter() {
 const isCapacitor = !!(window as Window & { Capacitor?: unknown }).Capacitor
 const API_BASE =
   isCapacitor
-    ? (import.meta.env.VITE_API_URL ?? 'https://cric-insights-ai.onrender.com')
+    ? (import.meta.env.VITE_API_URL ?? 'https://cric-insights-ai.com')
     : (import.meta.env.VITE_API_URL ?? '')
 
 const TOOLS = [
