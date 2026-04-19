@@ -9,7 +9,7 @@ from ..services.expected_service import ExpectedService
 
 router = APIRouter()
 
-# Lazy-initialised — do NOT load at import time (crashes Railway before $PORT is bound)
+# Lazy-initialised — do NOT load at import time (crashes Render before $PORT is bound)
 _provider: CricsheetProvider | None = None
 _stats: StatsService | None = None
 _expected: ExpectedService | None = None

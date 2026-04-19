@@ -13,7 +13,7 @@ CSV format (v1.x):
 Format is NOT stored in the v1 CSV — it is parsed from the README inside
 each gender zip file (e.g. all_male_csv.zip).
 
-Run (download + parse in one step — used by Docker/Railway):
+Run (download + parse in one step — used by Docker/Render):
     python -m backend.src.scripts.parse_cricsheet --gender both --download
 
 Run (parse pre-downloaded zips):

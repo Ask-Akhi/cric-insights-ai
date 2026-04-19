@@ -63,7 +63,7 @@ function parseApiError(status: number, body: string): CricketApiError {
 }
 
 export async function callAsk(apiBase: string, payload: AskPayload): Promise<AskResult> {
-  // 58s client timeout — Railway kills at 60s; backend times out at 52s and returns 503
+  // 58s client timeout — Render kills at 60s; backend times out at 52s and returns 503
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 58_000)
 

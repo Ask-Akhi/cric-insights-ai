@@ -29,12 +29,12 @@ function useQuestionCounter() {
   }
   return { used, left: Math.max(0, FREE_LIMIT - used), increment, limitHit: used >= FREE_LIMIT }
 }
-// absolute Railway URL. VITE_API_URL is set via .env.capacitor at build time.
-// In the browser (dev + Railway web), the Vite proxy handles /api → 8002.
+// absolute Render URL. VITE_API_URL is set via .env.capacitor at build time.
+// In the browser (dev + Render web), the Vite proxy handles /api → 8002.
 const isCapacitor = !!(window as Window & { Capacitor?: unknown }).Capacitor
 const API_BASE =
   isCapacitor
-    ? (import.meta.env.VITE_API_URL ?? 'https://your-railway-app.up.railway.app')
+    ? (import.meta.env.VITE_API_URL ?? 'https://cric-insights-ai.onrender.com')
     : (import.meta.env.VITE_API_URL ?? '')
 
 const TOOLS = [

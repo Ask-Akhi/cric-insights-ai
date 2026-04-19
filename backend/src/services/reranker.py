@@ -2,7 +2,7 @@
 Cross-encoder reranker for RAG context selection.
 
 Uses a lightweight TF-IDF + BM25-style scoring approach (no heavy ML model
-to avoid Railway memory limits) to rank candidate context snippets by
+to avoid Render memory limits) to rank candidate context snippets by
 relevance to the query before injecting into the LLM prompt.
 
 Why cross-encoder here (vs bi-encoder embeddings)?

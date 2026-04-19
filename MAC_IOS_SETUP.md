@@ -145,7 +145,7 @@ Wait **30–60 seconds** for Xcode to re-resolve SPM packages (progress spinner 
 [ ] 8.  gem install cocoapods  →  pod --version works
 [ ] 9.  git clone https://github.com/Ask-Akhi/cric-insights-ai.git
 [ ] 10. cd cric-insights-ai/frontend && npm install
-[ ] 11. Set Railway URL:  export VITE_API_URL=https://YOUR-APP.up.railway.app
+[ ] 11. Set Render URL:  export VITE_API_URL=https://cric-insights-ai.onrender.com
 [ ] 12. npm run cap:build:ios   (build + sync)
 [ ] 13. npx cap open ios  →  .xcworkspace opens in Xcode (SPM auto-resolves, no pod install needed)
 [ ] 14. Apple ID added, Team set, Bundle ID set to unique value
@@ -258,16 +258,15 @@ npm install
 
 ---
 
-## STEP 6 — Set Your Railway URL (IMPORTANT)
+## STEP 6 — Set Your Render URL (IMPORTANT)
 
-The app on iPhone needs to call your live Railway backend. Set this before building:
+The app on iPhone needs to call your live Render backend. Set this before building:
 
 ```bash
-export VITE_API_URL=https://YOUR-ACTUAL-APP.up.railway.app
+export VITE_API_URL=https://cric-insights-ai.onrender.com
 ```
 
-> Replace `YOUR-ACTUAL-APP` with your real Railway app URL (find it in the Railway dashboard).
-> To make it permanent, add that line to `~/.zshrc` and run `source ~/.zshrc`.
+> This is your live Render URL. To make it permanent, add that line to `~/.zshrc` and run `source ~/.zshrc`.
 
 ---
 
@@ -373,7 +372,7 @@ git push origin master
 cd ~/cric-insights-ai
 git pull origin master
 cd frontend
-export VITE_API_URL=https://YOUR-APP.up.railway.app
+export VITE_API_URL=https://cric-insights-ai.onrender.com
 npm run cap:build:ios
 npx cap open ios
 ```

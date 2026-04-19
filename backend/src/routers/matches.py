@@ -243,7 +243,7 @@ def recent_matches(
       1. RAPIDAPI_KEY / SPORTMONKS_KEY / CRICAPI_KEY env var → paid live API
       2. CricketData.org free API (no key needed) → automatic fallback
       3. Cricsheet static snapshot → last resort
-    Set RAPIDAPI_KEY in Railway Variables for the best live data (500 req/day free).
+    Set RAPIDAPI_KEY in Render → Environment for the best live data (500 req/day free).
     """
     # ── Always try live/free APIs first ───────────────────────────────────────
     live_matches, src = fetch_live_matches(format_filter=format, limit=limit)
@@ -279,7 +279,7 @@ def recent_matches(
             "matches": [], "count": 0, "source": "cricsheet", "live": False,
             "data_note": (
                 "Cricsheet data loading (first deploy ~3 min). "
-                "For live scores set one of these free API keys in Railway Variables: "
+                "For live scores set one of these free API keys in Render → Environment: "
                 "RAPIDAPI_KEY (500/day, best) → rapidapi.com/cricketapilive/api/cricbuzz-cricket | "
                 "CRICAPI_KEY (100/day) → cricapi.com | "
                 "CricketData.org (no key, auto-fallback, 100/day)"
@@ -333,7 +333,7 @@ def recent_matches(
         "live": False,
         "data_note": (
             f"Cricsheet snapshot — latest match: {latest_date}. "
-            "For live scores set RAPIDAPI_KEY (best, 500/day free) or CRICAPI_KEY (100/day free) in Railway Variables."
+            "For live scores set RAPIDAPI_KEY (best, 500/day free) or CRICAPI_KEY (100/day free) in Render → Environment."
         ),
         "latest_date": str(latest_date),
     }
@@ -349,7 +349,7 @@ def debug_live():
     """
     Diagnostic endpoint — shows exactly what each live provider returns.
     Hit https://cric-insights-ai.com/api/matches/debug-live to diagnose
-    wrong/empty ticker results without needing Railway log access.
+    wrong/empty ticker results without needing Render log access.
     """
     source = get_live_source()
     report: dict = {
@@ -448,12 +448,10 @@ def match_schedule(
     upcoming.sort(key=lambda x: x["date"])
     upcoming = upcoming[:limit]
 
-    note = (
-        f"{len(upcoming)} upcoming fixtures found in Cricsheet data (next {days_ahead} days). "
-        "For real-time schedules set RAPIDAPI_KEY in Railway Variables."
-        if upcoming else
-        f"No fixtures found in Cricsheet data for the next {days_ahead} days. "
-        "Cricsheet is historical — set RAPIDAPI_KEY in Railway Variables for live schedules."
+    note = (        f"{len(upcoming)} upcoming fixtures found in Cricsheet data (next {days_ahead} days). "
+        "For real-time schedules set RAPIDAPI_KEY in Render → Environment."
+        if upcoming else        f"No fixtures found in Cricsheet data for the next {days_ahead} days. "
+        "Cricsheet is historical — set RAPIDAPI_KEY in Render → Environment for live schedules."
     )
 
     return {

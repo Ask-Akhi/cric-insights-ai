@@ -327,7 +327,7 @@ export default function ToolShell({ icon, title, subtitle, onSubmit, onStreamSub
                     <div className="w-full rounded-xl p-4 space-y-2" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
                       <p className="text-red-400 font-semibold">⚙️ API Key Not Configured</p>
                       <p className="text-slate-400 text-xs leading-relaxed">
-                        Set <code className="text-orange-300">GEMINI_API_KEY</code> in Railway → Variables.
+                        Set <code className="text-orange-300">GEMINI_API_KEY</code> in Render → Environment.
                       </p>
                     </div>                  ) : error.includes('timed out') || error.includes('503') || error.includes('busy') ? (
                     <div className="w-full rounded-xl p-4 space-y-3" style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)' }}>

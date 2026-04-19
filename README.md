@@ -106,24 +106,20 @@ LLM_MODEL=gemini-2.0-flash-lite
 
 ## ☁️ Deployment
 
-### Option A — Railway (easiest, ~5 min)
+### Option A — Render (live at https://cric-insights-ai.onrender.com)
 
-1. Push repo to a **private** GitHub repo
-2. Go to [railway.app](https://railway.app) → **New Project → Deploy from GitHub**
-3. Select your repo
-4. Railway auto-detects `Dockerfile`
-5. Go to **Variables** and add:
+1. Push repo to GitHub
+2. Go to [render.com](https://render.com) → **New → Web Service → Connect GitHub repo**
+3. Render auto-detects `Dockerfile` via `render.yaml`
+4. Go to **Environment** and add secrets:
    ```
    GEMINI_API_KEY = <your key>
    APP_PASSWORD   = <your password>
-   LLM_PROVIDER   = gemini
-   LLM_MODEL      = gemini-2.0-flash-lite
    ```
-6. Go to **Settings → Networking** and expose port **8502** (Streamlit) as the public URL
-7. Optionally also expose port **8001** for direct API access
-8. Click **Deploy** — Railway builds the Docker image and launches it
+5. `LLM_PROVIDER`, `LLM_MODEL`, and other non-secret vars are already set in `render.yaml`
+6. Click **Deploy** — Render builds the Docker image and launches it
 
-**Cost:** Free tier = 500 hours/month. Upgrade for always-on.
+**Cost:** Starter plan = $7/mo (always-on). Free tier spins down after inactivity.
 
 ---
 

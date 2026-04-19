@@ -9,7 +9,7 @@ Priority order (first key found wins):
   3. CRICAPI_KEY        → CricAPI.com (free 100 req/day — basic)
   4. <none>             → free CricketData.org API (no key, 100 req/day) → Cricsheet static
 
-Set the key as a Railway environment variable. No code changes needed to switch providers.
+Set the key as a Render environment variable. No code changes needed to switch providers.
 """
 from __future__ import annotations
 import os
@@ -31,7 +31,7 @@ _CACHE: dict[str, tuple[float, Any]] = {}
 
 # RapidAPI free tier: 500 req/day, each fetch_cricbuzz_live() costs 2 credits (/live + /recent).
 # At 15-min cache + 5-min frontend poll → ≤ 2×(24×60/15) = 192 credits/day — well within 500.
-# Override via RAPIDAPI_CACHE_TTL env var (seconds) in Railway Variables if needed.
+# Override via RAPIDAPI_CACHE_TTL env var (seconds) in Render → Environment if needed.
 _CACHE_TTL     = int(os.getenv("RAPIDAPI_CACHE_TTL", "900"))   # 15 min default
 _FREE_CACHE_TTL = 600  # seconds — 10 min for Cricsheet static fallback
 
