@@ -491,7 +491,7 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
         agent = _build_agent()
         deps  = CricketDeps(
             db_pool=pool,
-            session_id=ctx.get("session_id", "default"),
+                        session_id=ctx.get("session_id", "default"),
         )
         async with agent.run_stream(prompt, deps=deps) as streamed:
             async for chunk in streamed.stream_text(delta=True):
@@ -501,13 +501,21 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
             gemini_breaker.record_success()
 
     except Exception as exc:
-        err_str = str(exc).lower()
+        import re as _re
+        raw_err = str(exc)
+        err_str = raw_err.lower()
+        # Sanitize before any logging or surfacing — Google embeds the key in 403 bodies
+        safe_err = _re.sub(r"api_key:[A-Za-z0-9_\-]+", "api_key:[REDACTED]", raw_err)
+        safe_err = _re.sub(r"'[A-Za-z0-9_\-]{20,}'", "'[REDACTED]'", safe_err)
         if any(x in err_str for x in ("quota", "rate limit", "429", "resource_exhausted")):
             gemini_breaker.trip()
             yield "⚠️ AI quota exhausted. Please try again later."
+        elif any(x in err_str for x in ("403", "permission_denied", "consumer_suspended")):
+            log.error("Stream error (key suspended/invalid): %s", safe_err[:200])
+            yield "⚠️ The AI service API key has been suspended or is invalid. Please update the GEMINI_API_KEY in the server environment."
         else:
-            log.exception("Stream error: %s", exc)
-            yield f"❌ Error: {exc}"
+            log.exception("Stream error: %s", safe_err[:200])
+            yield f"❌ Error: {safe_err}"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
