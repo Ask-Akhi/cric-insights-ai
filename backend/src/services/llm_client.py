@@ -291,6 +291,13 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                         time.sleep(2)
                         continue
                     break   # try next model
+                elif "403" in err or "PERMISSION_DENIED" in err or "CONSUMER_SUSPENDED" in err:
+                    # Key suspended or quota org-blocked — surface a clean message, never raw error
+                    _logger.error("Gemini 403/PERMISSION_DENIED — key may be suspended: %s", _sanitize_error(err)[:200])
+                    return (
+                        "⚠️ The AI service API key has been suspended or is invalid. "
+                        "Please update the GEMINI_API_KEY in the server environment."
+                    )
                 elif "404" in err or "NOT_FOUND" in err:
                     break   # model doesn't exist, skip
                 elif grounded and ("tools" in err.lower() or "search" in err.lower()):
