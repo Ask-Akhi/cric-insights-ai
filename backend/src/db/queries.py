@@ -54,11 +54,14 @@ async def query_head_to_head(
 # ── Player stats ──────────────────────────────────────────────────────────────
 
 async def query_player_stats(
-    pool, player: str, season: str = "all", fmt: str = ""
+    pool, player: str, season: str = "all", fmt: str = "",
+    since_year: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Return batting + bowling season aggregates for a player.
     Uses ILIKE for fuzzy name matching (handles partial names).
+    - season: exact season string e.g. "2023", or "all"
+    - since_year: if set, returns seasons >= this year (e.g. last 2 years)
     """
     sql = """
         SELECT player, team, season, format,
@@ -70,8 +73,11 @@ async def query_player_stats(
     """
     args: list[Any] = [f"%{player}%"]
     if season != "all":
-        sql += " AND season = $2"
+        sql += f" AND season = ${len(args)+1}"
         args.append(season)
+    if since_year is not None:
+        sql += f" AND CAST(season AS INTEGER) >= ${len(args)+1}"
+        args.append(since_year)
     if fmt:
         sql += f" AND format ILIKE ${len(args)+1}"
         args.append(fmt)

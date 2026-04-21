@@ -104,19 +104,22 @@ def _build_agent():
             provider=GoogleProvider(api_key=settings.gemini_api_key),
         )
 
-    # ── System prompt ─────────────────────────────────────────────────────────
-    SYSTEM = """You are Cricket Insights AI — an expert cricket analyst assistant.
+    # ── System prompt ─────────────────────────────────────────────────────────    SYSTEM = """You are Cricket Insights AI — an expert cricket analyst assistant.
 
 Rules:
 1. ALWAYS call at least one tool before answering.
 2. Use head_to_head for match-up queries ("MI vs CSK", "India vs Australia").
 3. Use player_stats for individual player queries.
+   - For "last N years" queries, pass last_n_years=N (e.g. "last 2 years" → last_n_years=2).
+   - For format-specific queries, pass format="T20" / "ODI" / "Test".
+   - For a specific season, pass season="2024".
 4. Use recent_form for "how has [team] been playing lately".
 5. Use top_players for leaderboard queries ("top batters", "best bowlers").
 6. Use semantic_search for complex narrative queries or when other tools return no data.
 7. Use live_score only for live/ongoing match queries.
 8. Be concise and factual. Cite specific numbers from tool results.
 9. If a tool returns no data, say so honestly — do not hallucinate statistics.
+10. Always show a stat table when multiple seasons/formats are returned.
 """
     _agent = Agent(
         model,
@@ -144,23 +147,35 @@ Rules:
         # Polars fallback
         return await _polars_fallback("head_to_head", {
             "team_a": team_a, "team_b": team_b,            "format": format, "last_n": last_n,
-        })
-
-    @_agent.tool
+        })    @_agent.tool
     async def player_stats(
         ctx: RunContext[CricketDeps],
         player: str,
         season: str = "all",
         format: str = "",
+        last_n_years: int = 0,
     ) -> str:
-        """Get batting and bowling statistics for a cricket player."""
+        """
+        Get batting and bowling statistics for a cricket player.
+        - season: exact season e.g. "2023", or "all" for career
+        - last_n_years: e.g. 2 means stats from the last 2 seasons only
+        - format: e.g. "T20", "ODI", "Test"
+        """
+        import datetime
+        since_year = None
+        if last_n_years > 0:
+            since_year = datetime.date.today().year - last_n_years + 1
+
         if ctx.deps.db_pool:
             from ..db.queries import query_player_stats
-            rows = await query_player_stats(ctx.deps.db_pool, player, season, format)
+            rows = await query_player_stats(
+                ctx.deps.db_pool, player, season, format, since_year=since_year
+            )
             if rows:
                 return _format_player_stats(player, rows)
 
-        return await _polars_fallback("player_stats", {            "player": player, "season": season, "format": format,
+        return await _polars_fallback("player_stats", {
+            "player": player, "season": season, "format": format,
         })
 
     @_agent.tool
@@ -344,15 +359,29 @@ def _format_h2h(data: dict, team_a: str, team_b: str) -> str:
 
 def _format_player_stats(player: str, rows: list[dict]) -> str:
     lines = [f"## Player Stats: {player}\n"]
-    for r in rows[:10]:
-        bat = (f"Runs {r['runs']}, Avg {r['avg']}, SR {r['strike_rate']}, "
-               f"Matches {r['bat_matches']}")
-        bowl = (f"Wkts {r['wickets']}, Econ {r['economy']}, "
-                f"Avg {r['bowling_avg']}")
+    # Table header
+    lines.append("| Season | Format | Team | Matches | Runs | Avg | SR | 4s | 6s | Wkts | Econ |")
+    lines.append("|--------|--------|------|---------|------|-----|----|----|----|------|------|")
+    for r in rows[:15]:
         lines.append(
-            f"**{r['season']} {r['format']} ({r['team']})** — "
-            f"Bat: {bat} | Bowl: {bowl}"
+            f"| {r.get('season','?')} | {r.get('format','?')} | {r.get('team','?')} "
+            f"| {r.get('bat_matches',0)} | {r.get('runs',0)} "
+            f"| {r.get('avg') or '-'} | {r.get('strike_rate') or '-'} "
+            f"| {r.get('fours',0)} | {r.get('sixes',0)} "
+            f"| {r.get('wickets',0)} | {r.get('economy') or '-'} |"
         )
+    # Aggregate summary across all returned rows
+    if len(rows) > 1:
+        total_runs = sum(r.get("runs", 0) or 0 for r in rows)
+        total_matches = sum(r.get("bat_matches", 0) or 0 for r in rows)
+        total_wkts = sum(r.get("wickets", 0) or 0 for r in rows)
+        avgs = [r["avg"] for r in rows if r.get("avg")]
+        agg_avg = round(sum(avgs) / len(avgs), 2) if avgs else "-"
+        srs = [r["strike_rate"] for r in rows if r.get("strike_rate")]
+        agg_sr = round(sum(srs) / len(srs), 2) if srs else "-"
+        lines.append(f"\n**Aggregate across {len(rows)} season(s):** "
+                     f"{total_matches} matches, {total_runs} runs, "
+                     f"Avg {agg_avg}, SR {agg_sr}, {total_wkts} wickets")
     return "\n".join(lines)
 
 
