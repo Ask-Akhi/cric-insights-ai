@@ -246,9 +246,9 @@ Rules:
             # Fallback to full-text search
             from ..db.queries import query_match_summary_text
             rows = await query_match_summary_text(ctx.deps.db_pool, query, limit)
-            if rows:
-                return "\n\n".join(
-                    f"**{r['team_a']} vs {r['team_b']}** ({r['date']}): {r['summary']}"                    for r in rows
+            if rows:                return "\n\n".join(
+                    f"**{r['team_a']} vs {r['team_b']}** ({r['date']}): {r['summary']}"
+                    for r in rows
                 )
         return "No matching match records found."
 
@@ -502,9 +502,9 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
     Stream the agent response token by token.
     Used by the SSE /api/ask/stream endpoint.
     Yields string chunks as they arrive from the LLM.
-    """
-    if not _check_pydantic_ai():
-        # Fallback: run non-streaming and yield the full answer at once        result = await run(prompt, ctx)
+    """    if not _check_pydantic_ai():
+        # Fallback: run non-streaming and yield the full answer at once
+        result = await run(prompt, ctx)
         yield result.answer
         return
 
@@ -520,7 +520,7 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
         agent = _build_agent()
         deps  = CricketDeps(
             db_pool=pool,
-                        session_id=ctx.get("session_id", "default"),
+            session_id=ctx.get("session_id", "default"),
         )
         async with agent.run_stream(prompt, deps=deps) as streamed:
             async for chunk in streamed.stream_text(delta=True):
