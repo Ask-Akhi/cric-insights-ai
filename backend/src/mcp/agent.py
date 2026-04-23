@@ -248,7 +248,8 @@ Rules:
             # Fallback to full-text search
             from ..db.queries import query_match_summary_text
             rows = await query_match_summary_text(ctx.deps.db_pool, query, limit)
-            if rows:                return "\n\n".join(
+            if rows:
+                return "\n\n".join(
                     f"**{r['team_a']} vs {r['team_b']}** ({r['date']}): {r['summary']}"
                     for r in rows
                 )
@@ -513,7 +514,6 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
 
     from ..db.connection import get_pool
     from ..services.circuit_breaker import gemini_breaker
-
     if gemini_breaker.is_open:
         yield "⚠️ AI quota exhausted — please try again later."
         return
@@ -539,15 +539,36 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
         # Sanitize before any logging or surfacing — Google embeds the key in 403 bodies
         safe_err = _re.sub(r"api_key:[A-Za-z0-9_\-]+", "api_key:[REDACTED]", raw_err)
         safe_err = _re.sub(r"'[A-Za-z0-9_\-]{20,}'", "'[REDACTED]'", safe_err)
-        if any(x in err_str for x in ("quota", "rate limit", "429", "resource_exhausted")):
-            gemini_breaker.trip()
-            yield "⚠️ AI quota exhausted. Please try again later."
+
+        # On 503/overload/quota: try Groq fallback via non-streaming llm_client
+        # (yields the full answer at once instead of streaming chunks).
+        is_overload = any(x in err_str for x in ("503", "unavailable", "overloaded", "high demand"))
+        is_quota    = any(x in err_str for x in ("quota", "rate limit", "429", "resource_exhausted"))
+
+        if is_overload or is_quota:
+            if is_quota:
+                gemini_breaker.trip()
+            log.warning("Stream error (%s) - trying Groq fallback", "quota" if is_quota else "503")
+            try:
+                from ..services.llm_client import _groq_response, GROQ_API_KEY
+                if GROQ_API_KEY:
+                    groq_answer = _groq_response(prompt, ctx or {})
+                    if groq_answer and not groq_answer.startswith("❌"):
+                        yield groq_answer + "\n\n*(answered by Groq fallback - Gemini was overloaded)*"
+                        return
+            except Exception as groq_exc:
+                log.warning("Groq fallback also failed: %s", str(groq_exc)[:200])
+            # Groq unavailable or failed
+            if is_quota:
+                yield "⚠️ AI quota exhausted. Please try again later."
+            else:
+                yield "⚠️ Gemini is currently overloaded and no fallback is configured. Please try again in 30 seconds."
         elif any(x in err_str for x in ("403", "permission_denied", "consumer_suspended")):
             log.error("Stream error (key suspended/invalid): %s", safe_err[:200])
             yield "⚠️ The AI service API key has been suspended or is invalid. Please update the GEMINI_API_KEY in the server environment."
         else:
             log.exception("Stream error: %s", safe_err[:200])
-            yield f"❌ Error: {safe_err}"
+            yield f"❌ Error: {safe_err[:300]}"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

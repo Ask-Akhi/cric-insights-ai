@@ -3,7 +3,7 @@ import time
 import hashlib
 from datetime import date
 from typing import Dict, Any, Optional
-from .llm_settings import LLM_PROVIDER, LLM_MODEL, GEMINI_API_KEY, OPENAI_API_KEY
+from .llm_settings import LLM_PROVIDER, LLM_MODEL, GEMINI_API_KEY, OPENAI_API_KEY, GROQ_API_KEY, GROQ_MODEL
 from .circuit_breaker import gemini_breaker
 
 _QUOTA_MSG = (
@@ -176,6 +176,11 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     # Circuit breaker — skip API call entirely when quota is exhausted
     if gemini_breaker.is_open:
         gemini_breaker.record_skip()
+        # Try Groq fallback instead of just returning quota msg
+        if GROQ_API_KEY:
+            groq_answer = _groq_response(prompt, context)
+            if not groq_answer.startswith("❌"):
+                return groq_answer + "\n\n*(answered by Groq fallback - Gemini circuit breaker open)*"
         return _QUOTA_MSG
 
     from google import genai
@@ -277,8 +282,13 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
                 if "429" in err or "RESOURCE_EXHAUSTED" in err:
                     # Quota exhaustion → all models share same key, fail fast
                     if "quota" in err.lower() or "exceeded" in err.lower() or "RESOURCE_EXHAUSTED" in err:
-                        _logger.warning("Gemini quota exhausted — tripping circuit breaker")
+                        _logger.warning("Gemini quota exhausted — tripping circuit breaker, trying Groq")
                         gemini_breaker.trip(reason=_sanitize_error(err)[:120])
+                        # Try Groq fallback before surfacing quota error
+                        if GROQ_API_KEY:
+                            groq_answer = _groq_response(prompt, context)
+                            if not groq_answer.startswith("❌"):
+                                return groq_answer + "\n\n*(answered by Groq fallback - Gemini quota exhausted)*"
                         return _QUOTA_MSG
                     if attempt == 0:
                         time.sleep(2)
@@ -310,7 +320,41 @@ def _gemini_response(prompt: str, context: Dict[str, Any], grounded: bool = Fals
     if grounded:
         # All grounding-capable models exhausted — try without grounding
         return _gemini_response(prompt, context, grounded=False)
+    # All Gemini models failed (503/overload/quota) — try Groq as free fallback
+    if GROQ_API_KEY:
+        _logger.warning("All Gemini models failed — falling back to Groq (%s)", GROQ_MODEL)
+        groq_answer = _groq_response(prompt, context)
+        if not groq_answer.startswith("❌"):
+            return groq_answer + "\n\n*(answered by Groq fallback - Gemini was overloaded)*"
     return "❌ All Gemini models quota exhausted. Wait a few minutes or visit https://ai.dev/rate-limit"
+
+
+def _groq_response(prompt: str, context: Dict[str, Any]) -> str:
+    """Groq fallback - free, fast, OpenAI-compatible. Used when Gemini 503s or quota exhausted."""
+    if not GROQ_API_KEY:
+        return "❌ GROQ_API_KEY not set."
+    try:
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1",
+            timeout=35.0,
+        )
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            max_tokens=_max_tokens_for(prompt),
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": "You are an expert cricket analyst. Be concise, use tables, cite numbers."},
+                {"role": "user", "content": _build_prompt(prompt, context, grounded=False)},
+            ],
+        )
+        text = response.choices[0].message.content or ""
+        return _clean_response(text) if text else "❌ Groq returned empty response."
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning("Groq fallback failed: %s", _sanitize_error(str(e))[:200])
+        return f"❌ Groq error: {_sanitize_error(str(e))[:200]}"
 
 
 def _openai_response(prompt: str, context: Dict[str, Any]) -> str:
