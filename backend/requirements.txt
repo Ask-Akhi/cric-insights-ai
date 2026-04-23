@@ -46,3 +46,4 @@ python-dotenv==1.0.0
 
 # Token counting (MCP context assembler)
 tiktoken>=0.7.0
+aiohttp>=3.9.0

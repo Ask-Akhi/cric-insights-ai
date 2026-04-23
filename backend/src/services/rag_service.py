@@ -682,6 +682,121 @@ def fetch_fantasy_prediction_context(
     return "\n".join(table_lines)
 
 
+# ── Phase 3: DB-backed enrichment (player_form_recent, venue_stats_agg, news) ──
+# These helpers query Postgres tables populated by the nightly ingest.
+# They're best-effort: if DB is unavailable or tables don't exist yet, they
+# return an empty string and RAG falls back to Parquet-only data.
+
+def _fetch_db_enrichment_sync(
+    players: list[str],
+    venue: str,
+    teams: list[str],
+    fmt: str,
+) -> str:
+    """Sync wrapper that runs the async DB fetches via asyncio.run / loop."""
+    import os
+    if not os.environ.get("DATABASE_URL"):
+        return ""
+    try:
+        import asyncio
+        import asyncpg
+    except ImportError:
+        return ""
+
+    async def _go() -> str:
+        try:
+            url = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://")
+            pool = await asyncpg.create_pool(
+                url, min_size=1, max_size=2,
+                statement_cache_size=0, command_timeout=5,
+            )
+        except Exception as exc:
+            log.debug("DB enrichment skipped (pool failed): %s", exc)
+            return ""
+
+        blocks: list[str] = []
+        try:
+            from ..db.queries import (
+                query_player_form_recent,
+                query_venue_stats_agg,
+                query_latest_news,
+            )
+
+            # Rolling form for top detected players
+            if players:
+                form_rows: list[dict] = []
+                for p in players[:6]:
+                    rows = await query_player_form_recent(pool, p, fmt)
+                    form_rows.extend(rows)
+                if form_rows:
+                    lines = ["### Rolling Last-10 Innings Form (DB)\n",
+                             "| Player | Format | Inns | Runs | Avg | SR | 50s | 100s | Wkts | Econ |",
+                             "|---|---|---|---|---|---|---|---|---|---|"]
+                    for r in form_rows[:10]:
+                        lines.append(
+                            f"| {r.get('player','?')} | {r.get('format','?')} "
+                            f"| {r.get('innings',0)} | {r.get('runs',0)} "
+                            f"| {r.get('avg') or '-'} | {r.get('strike_rate') or '-'} "
+                            f"| {r.get('fifties',0)} | {r.get('hundreds',0)} "
+                            f"| {r.get('wickets',0)} | {r.get('economy') or '-'} |"
+                        )
+                    blocks.append("\n".join(lines))
+
+            # Venue aggregates
+            if venue:
+                vrows = await query_venue_stats_agg(pool, venue, fmt)
+                if vrows:
+                    lines = ["### Venue Aggregate Stats (DB)\n",
+                             "| Venue | Format | Matches | 1st Inn Avg | 2nd Inn Avg | Toss Win % | Chase Win % | Bat-First Win % |",
+                             "|---|---|---|---|---|---|---|---|"]
+                    for r in vrows:
+                        lines.append(
+                            f"| {r.get('venue','?')} | {r.get('format','?')} "
+                            f"| {r.get('total_matches',0)} "
+                            f"| {r.get('avg_first_innings') or '-'} "
+                            f"| {r.get('avg_second_innings') or '-'} "
+                            f"| {r.get('toss_win_pct') or '-'} "
+                            f"| {r.get('chase_win_pct') or '-'} "
+                            f"| {r.get('bat_first_win_pct') or '-'} |"
+                        )
+                    blocks.append("\n".join(lines))
+
+            # Latest news tagged to relevant teams / players
+            tags = [t for t in teams if t] + [p for p in players[:6] if p]
+            news_rows = await query_latest_news(pool, tags=tags or None, limit=6)
+            if news_rows:
+                lines = ["### Latest Cricket News (RSS, last 24-48h)\n"]
+                for r in news_rows:
+                    title = (r.get("title") or "").strip()
+                    summary = (r.get("summary") or "").strip()
+                    src = r.get("source") or ""
+                    lines.append(f"- **{title}** ({src})")
+                    if summary:
+                        lines.append(f"  > {summary[:280]}")
+                blocks.append("\n".join(lines))
+        except Exception as exc:
+            log.debug("DB enrichment partial failure: %s", exc)
+        finally:
+            try:
+                await pool.close()
+            except Exception:
+                pass
+        return "\n\n".join(blocks)
+
+    try:
+        # Prefer existing loop if inside one (shouldn't be — RAG is called sync)
+        try:
+            asyncio.get_running_loop()
+            # already in a loop — schedule but return empty (avoid blocking)
+            log.debug("DB enrichment skipped (already in event loop)")
+            return ""
+        except RuntimeError:
+            return asyncio.run(_go())
+    except Exception as exc:
+        log.debug("DB enrichment runner failed: %s", exc)
+        return ""
+
+
 def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
     fmt = str(context.get("format", "T20"))
 
@@ -784,6 +899,20 @@ def build_rag_context(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
         enriched["teams"] = f"{teams[0]} vs {teams[1]}"
     elif len(teams) == 1:
         enriched["teams"] = teams[0]
+
+    # ── Phase 3: DB-backed enrichment (rolling form + venue agg + news) ──────
+    # Best-effort: short timeout, silent on failure, falls back to Parquet data.
+    try:
+        db_text = _fetch_db_enrichment_sync(
+            players=players or [],
+            venue=venue or "",
+            teams=teams or [],
+            fmt=fmt,
+        )
+        if db_text:
+            cricsheet_blocks.append(db_text)
+    except Exception as exc:
+        log.debug("DB enrichment non-fatal error: %s", exc)
 
     # ── Cross-encoder reranking ───────────────────────────────────────────────
     # Score every block against the query; keep only the top-k most relevant.

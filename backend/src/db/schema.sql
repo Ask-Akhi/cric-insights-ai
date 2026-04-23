@@ -177,3 +177,19 @@ CREATE TABLE IF NOT EXISTS player_form_recent (
     PRIMARY KEY (player, format)
 );
 CREATE INDEX IF NOT EXISTS idx_pfr_player ON player_form_recent (player);
+
+
+-- Phase 3: cricket news (RSS-driven injury/playing-XI/toss hints for RAG) --
+CREATE TABLE IF NOT EXISTS news_items (
+    url             TEXT        PRIMARY KEY,
+    title           TEXT        NOT NULL,
+    summary         TEXT,
+    source          TEXT,
+    published_at    TIMESTAMPTZ,
+    fetched_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    tags            TEXT[]
+);
+CREATE INDEX IF NOT EXISTS idx_news_published ON news_items (published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_tags      ON news_items USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_news_fts
+    ON news_items USING gin (to_tsvector('english', title || ' ' || COALESCE(summary, '')));

@@ -361,3 +361,37 @@ async def query_player_form_recent(
     except Exception as exc:
         log.warning("query_player_form_recent failed: %s", exc)
         return []
+
+
+# -- Phase 3: news items ----------------------------------------------------
+
+async def query_latest_news(
+    pool, tags: list[str] | None = None, limit: int = 6
+) -> list[dict[str, Any]]:
+    """
+    Return the most recent news items. If 	ags is provided, prefer items
+    whose tags overlap (Postgres array overlap &&).
+    """
+    try:
+        if tags:
+            sql = '''
+                SELECT url, title, summary, source, published_at, tags
+                FROM news_items
+                WHERE tags && $1::text[]
+                ORDER BY COALESCE(published_at, fetched_at) DESC
+                LIMIT $2
+            '''.replace("", "")
+            rows = await pool.fetch(sql, tags, limit)
+            if rows:
+                return [dict(r) for r in rows]
+        sql = '''
+            SELECT url, title, summary, source, published_at, tags
+            FROM news_items
+            ORDER BY COALESCE(published_at, fetched_at) DESC
+            LIMIT $1
+        '''.replace("", "")
+        rows = await pool.fetch(sql, limit)
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        log.warning("query_latest_news failed: %s", exc)
+        return []
