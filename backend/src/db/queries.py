@@ -202,3 +202,61 @@ async def query_top_bowlers(
 
     rows = await pool.fetch(sql, *args)
     return [dict(r) for r in rows]
+
+
+# -- Venue stats ------------------------------------------------------------
+
+async def query_venue_stats(
+    pool, venue: str, fmt: str = "", last_n: int = 20
+) -> dict[str, Any]:
+    """
+    Aggregate stats for a given venue from match_summary:
+      - total matches, recent results
+      - winner distribution (who wins most here)
+      - format breakdown
+    Uses ILIKE fuzzy match on venue.
+    """
+    try:
+        sql = """
+            SELECT match_id, date, format, team_a, team_b, winner, margin, summary
+            FROM match_summary
+            WHERE venue ILIKE $1
+        """
+        args: list[Any] = [f"%{venue}%"]
+        if fmt:
+            sql += f" AND format ILIKE ${len(args)+1}"
+            args.append(fmt)
+        sql += f" ORDER BY date DESC LIMIT ${len(args)+1}"
+        args.append(last_n)
+
+        rows = await pool.fetch(sql, *args)
+        matches = [dict(r) for r in rows]
+
+        winners: dict[str, int] = {}
+        for m in matches:
+            w = (m.get("winner") or "").strip()
+            if w:
+                winners[w] = winners.get(w, 0) + 1
+        top_winners = sorted(winners.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        fmt_counts: dict[str, int] = {}
+        for m in matches:
+            f = (m.get("format") or "Unknown").strip()
+            fmt_counts[f] = fmt_counts.get(f, 0) + 1
+
+        return {
+            "venue": venue,
+            "total_matches": len(matches),
+            "recent": matches[:10],
+            "top_winners": top_winners,
+            "format_breakdown": fmt_counts,
+        }
+    except Exception as exc:
+        log.warning("query_venue_stats failed: %s", exc)
+        return {
+            "venue": venue,
+            "total_matches": 0,
+            "recent": [],
+            "top_winners": [],
+            "format_breakdown": {},
+        }

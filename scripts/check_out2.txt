@@ -1,0 +1,147 @@
+?? Running pre-push deployment checks...
+
+[1/8] render.yaml
+  [32m[OK]  [0m  render.yaml exists
+  [32m[OK]  [0m  render.yaml has at least one service
+  [32m[OK]  [0m  service runtime = docker
+  [32m[OK]  [0m  dockerfilePath set
+  [32m[OK]  [0m  healthCheckPath = /api/health
+  [32m[OK]  [0m  GEMINI_API_KEY declared in envVars
+  [32m[OK]  [0m  GEMINI_API_KEY has no hardcoded value
+
+[2/8] Dockerfile
+  [32m[OK]  [0m  CMD found in Dockerfile
+  [32m[OK]  [0m  CMD uses uvicorn (not npm/node)
+  [32m[OK]  [0m  CMD binds to 0.0.0.0 (not 127.0.0.1)
+  [32m[OK]  [0m  CMD references PORT env var
+  [32m[OK]  [0m  Final stage is python (not node)
+  [32m[OK]  [0m  Cricsheet data baked at build time
+  [32m[OK]  [0m  Raw CSVs cleaned up after parse
+  [32m[OK]  [0m  POLARS_MAX_THREADS set
+  [32m[OK]  [0m  frontend/scripts/ copied before npm ci
+  [32m[OK]  [0m  patch-spm.cjs has no UTF-8 BOM
+  [32m[OK]  [0m  patch-spm.cjs exits early on non-macOS (Docker-safe)
+
+[3/8] backend/requirements.txt (prod safety)
+  [32m[OK]  [0m  No 'pytest' in prod requirements
+  [32m[OK]  [0m  No 'pytest-' in prod requirements
+  [32m[OK]  [0m  No 'black' in prod requirements
+  [32m[OK]  [0m  No 'ruff' in prod requirements
+  [32m[OK]  [0m  No 'mypy' in prod requirements
+  [32m[OK]  [0m  No 'pylint' in prod requirements
+  [32m[OK]  [0m  No 'ipython' in prod requirements
+  [32m[OK]  [0m  No 'jupyter' in prod requirements
+
+[4/8] Frontend -- vite build
+  [32m[OK]  [0m  vite build succeeds
+
+[5/8] Backend -- import smoke test
+  [32m[OK]  [0m  backend.src.main imports without crash
+
+[6/8] Backend -- AST parse + collapsed-line scan
+  [32m[OK]  [0m  AST + collapse scan backend/src/mcp/servers/cricsheet_server.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/mcp/orchestrator.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/core/config.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/main.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/providers/cricsheet_provider.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/services/rag_service.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/routers/players.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/routers/ask.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/routers/admin.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/services/circuit_breaker.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/services/data_refresh_scheduler.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/core/token_utils.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/mcp/context_assembler.py
+  All backend files pass AST parse + collapsed-line scan.
+
+[7/8] MCP pipeline smoke test (intent + tools, ~2s)
+  [32m[OK]  [0m  MCP smoke test (30 assertions)
+
+[8/8] pytest -- deployment config tests (file-read only, ~0.1s)
+  [32m[OK]  [0m  pytest gate (13 passed in 0.20s)
+
+[32m[PASS] All checks passed -- safe to push![0m
+
+
+=== Committing & pushing === git add backend/src/mcp/orchestrator.py backend/src/services/llm_client.py
+On branch master
+Your branch is up to date with 'origin/master'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   backend/.env.example
+	modified:   render.yaml
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	backend/src/providers/cricsheet_provider.py.bak
+	scripts/check_out2.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")
+≡ƒöì Running pre-push deployment checks...
+
+[1/8] render.yaml
+  [32m[OK]  [0m  render.yaml exists
+  [32m[OK]  [0m  render.yaml has at least one service
+  [32m[OK]  [0m  service runtime = docker
+  [32m[OK]  [0m  dockerfilePath set
+  [32m[OK]  [0m  healthCheckPath = /api/health
+  [32m[OK]  [0m  GEMINI_API_KEY declared in envVars
+  [32m[OK]  [0m  GEMINI_API_KEY has no hardcoded value
+
+[2/8] Dockerfile
+  [32m[OK]  [0m  CMD found in Dockerfile
+  [32m[OK]  [0m  CMD uses uvicorn (not npm/node)
+  [32m[OK]  [0m  CMD binds to 0.0.0.0 (not 127.0.0.1)
+  [32m[OK]  [0m  CMD references PORT env var
+  [32m[OK]  [0m  Final stage is python (not node)
+  [32m[OK]  [0m  Cricsheet data baked at build time
+  [32m[OK]  [0m  Raw CSVs cleaned up after parse
+  [32m[OK]  [0m  POLARS_MAX_THREADS set
+  [32m[OK]  [0m  frontend/scripts/ copied before npm ci
+  [32m[OK]  [0m  patch-spm.cjs has no UTF-8 BOM
+  [32m[OK]  [0m  patch-spm.cjs exits early on non-macOS (Docker-safe)
+
+[3/8] backend/requirements.txt (prod safety)
+  [32m[OK]  [0m  No 'pytest' in prod requirements
+  [32m[OK]  [0m  No 'pytest-' in prod requirements
+  [32m[OK]  [0m  No 'black' in prod requirements
+  [32m[OK]  [0m  No 'ruff' in prod requirements
+  [32m[OK]  [0m  No 'mypy' in prod requirements
+  [32m[OK]  [0m  No 'pylint' in prod requirements
+  [32m[OK]  [0m  No 'ipython' in prod requirements
+  [32m[OK]  [0m  No 'jupyter' in prod requirements
+
+[4/8] Frontend -- vite build
+  [32m[OK]  [0m  vite build succeeds
+
+[5/8] Backend -- import smoke test
+  [32m[OK]  [0m  backend.src.main imports without crash
+
+[6/8] Backend -- AST parse + collapsed-line scan
+  [32m[OK]  [0m  AST + collapse scan backend/src/mcp/servers/cricsheet_server.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/mcp/orchestrator.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/core/config.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/main.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/providers/cricsheet_provider.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/services/rag_service.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/routers/players.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/routers/ask.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/routers/admin.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/services/circuit_breaker.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/services/data_refresh_scheduler.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/core/token_utils.py
+  [32m[OK]  [0m  AST + collapse scan backend/src/mcp/context_assembler.py
+  All backend files pass AST parse + collapsed-line scan.
+
+[7/8] MCP pipeline smoke test (intent + tools, ~2s)
+  [32m[OK]  [0m  MCP smoke test (30 assertions)
+
+[8/8] pytest -- deployment config tests (file-read only, ~0.1s)
+  [32m[OK]  [0m  pytest gate (13 passed in 0.23s)
+
+[32m[PASS] All checks passed -- safe to push![0m
+
+Everything up-to-date
+Push complete!

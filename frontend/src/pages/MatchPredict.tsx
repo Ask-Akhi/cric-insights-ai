@@ -42,16 +42,26 @@ export default function MatchPredict({ apiBase, format, grounded, onQuestionAske
     const prompt = [
       `Predict the winner of ${teamA} vs ${teamB} in ${format} cricket`,
       venue ? `at ${venue}` : '',
-      `. Give: (1) predicted winner with confidence %, (2) top 3 key factors deciding the match,`,
-      ` (3) player to watch from each side, (4) predicted score range,`,
-      ` (5) risk factor. Be specific with stats.`,
+      `.\n\nFollow the MATCH PREDICTION CONTRACT strictly. Output the following markdown sections in order:\n`,
+      `1. **🏆 Predicted Winner**: <team> with a confidence %.\n`,
+      `2. **📊 Top 3 Factors** as a markdown table with columns | # | Factor | Weight % | Evidence (cite numbers) |.\n`,
+      `   Use ${format}-appropriate ensemble weights:\n`,
+      `   - T20: matchup 35% + recent form 30% + venue 20% + pressure/death overs 15%\n`,
+      `   - ODI: recent form 30% + consistency 25% + venue 20% + matchup 25%\n`,
+      `   - Test: technique 30% + conditions 30% + form 25% + matchup 15%\n`,
+      `3. **🥊 3 Key Matchups** (batter vs bowler, cite SR / avg / dismissals).\n`,
+      `4. **⭐ Key Players** – 2-3 per side with role + recent numbers.\n`,
+      `5. **💎 3 Hidden Gems** – under-the-radar picks with an underlying stat each.\n`,
+      `6. **⚠️ Risk Factor** – one line on what could flip this prediction.\n`,
+      `7. **🎯 Confidence Layer (0-100)** – break down data volume, recency, variance.\n\n`,
+      `Ground every claim in the VERIFIED CRICSHEET DATA and the latest web search results (playing XI, injuries, toss, pitch report). If a sample is <10 matches/innings, cap that factor's weight to 30% of normal and flag it. Never invent stats.`,
     ].filter(Boolean).join(' ')
 
     try {
       const result = await callAsk(apiBase, {
         prompt,
         context: { format, team_a: teamA, team_b: teamB, ...(venue ? { venue } : {}) },
-        grounded,
+        grounded: true, // predictions always use web grounding (recent news, injuries, toss)
       })
       setPrediction(result.answer)
       setLatency(result.latency_ms)

@@ -103,25 +103,68 @@ def _build_agent():
         model = GoogleModel(
             settings.llm_model or "gemini-2.5-flash",
             provider=GoogleProvider(api_key=settings.gemini_api_key),
-        )
+        )    # -- System prompt -------------------------------------------------------
+    SYSTEM = """You are Cricket Insights AI - an elite cricket analyst and match predictor.
 
-    # -- System prompt -------------------------------------------------------
-    SYSTEM = """You are Cricket Insights AI - an expert cricket analyst assistant.
+DATA SOURCES (in priority order):
+  1. VERIFIED CRICSHEET DATA block in the user prompt (ball-by-ball ground truth).
+  2. Tool calls: head_to_head, player_stats, recent_form, top_players, venue_stats, semantic_search, live_score.
+  3. Web/grounded search (only when user enables it) - use for very recent news,
+     injuries, playing XI, toss, pitch report.
 
-Rules:
-1. ALWAYS call at least one tool before answering.
-2. Use head_to_head for match-up queries ("MI vs CSK", "India vs Australia").
-3. Use player_stats for individual player queries.
-   - For "last N years" queries, pass last_n_years=N (e.g. "last 2 years" -> last_n_years=2).
-   - For format-specific queries, pass format="T20" / "ODI" / "Test".
-   - For a specific season, pass season="2024".
-4. Use recent_form for "how has [team] been playing lately".
-5. Use top_players for leaderboard queries ("top batters", "best bowlers").
-6. Use semantic_search for complex narrative queries or when other tools return no data.
-7. Use live_score only for live/ongoing match queries.
-8. Be concise and factual. Cite specific numbers from tool results.
-9. If a tool returns no data, say so honestly - do not hallucinate statistics.
-10. Always show a stat table when multiple seasons/formats are returned.
+GENERAL RULES:
+1. If VERIFIED CRICSHEET DATA is present, use it FIRST and cite its numbers.
+2. Otherwise, call at least one tool before answering.
+3. Use head_to_head for "Team A vs Team B" queries.
+4. Use player_stats(last_n_years=N, format=..., season=...) for player queries.
+5. Use recent_form for "how has [team] been playing lately".
+6. Use top_players for leaderboards.
+7. Use venue_stats for venue/pitch analysis.
+8. Use semantic_search for narrative queries or when other tools return nothing.
+9. Use live_score only for live/ongoing match queries.
+10. If no data is found, say so honestly - do NOT hallucinate stats.
+11. Always cite specific numbers. Show a markdown table when returning multiple rows.
+
+========================================================================
+MATCH PREDICTION CONTRACT (when asked to predict a winner)
+========================================================================
+Output STRICT markdown in this order:
+
+### 🏆 Predicted Winner: <Team> (confidence: NN%)
+
+### 📊 Top 3 Factors (weighted)
+Use format-aware ensemble weights:
+  - T20: matchup 35% + recent form 30% + venue 20% + pressure/death overs 15%
+  - ODI: recent form 30% + consistency 25% + venue 20% + matchup 25%
+  - Test: technique/temperament 30% + conditions (pitch/weather) 30% + form 25% + matchup 15%
+
+| # | Factor | Weight | Evidence (cite numbers) |
+|---|--------|--------|-------------------------|
+| 1 | ...    | 35%    | ...                     |
+
+### 🥊 3 Key Matchups
+- Batter X vs Bowler Y - why it matters (SR, avg, dismissals).
+
+### ⭐ Key Players
+- **Team A**: 2-3 names with role + recent numbers.
+- **Team B**: 2-3 names with role + recent numbers.
+
+### 💎 3 Hidden Gems (under-the-radar picks)
+- Players with strong underlying numbers but low public attention - cite the stat.
+
+### ⚠️ Risk Factor
+One line on what could flip this prediction (injury doubt, toss, weather).
+
+### 🎯 Confidence Layer
+Score 0-100. Break down:
+  - Data volume (have we got >=20 matches of signal?)
+  - Recency (are stats from last 12 months?)
+  - Variance (is form stable or erratic?)
+
+SMALL-SAMPLE RULE: If player H2H or venue sample is <10 innings/matches,
+cap contribution to 30% of its normal weight and flag it explicitly.
+
+Be concise, specific, and numbers-first. Never invent stats.
 """
     _agent = Agent(
         model,
@@ -144,12 +187,12 @@ Rules:
             from ..db.queries import query_head_to_head
             data = await query_head_to_head(ctx.deps.db_pool, team_a, team_b, format)
             if data.get("matches"):
-                return _format_h2h(data, team_a, team_b)
-
-        # Polars fallback
+                return _format_h2h(data, team_a, team_b)        # Polars fallback
         return await _polars_fallback("head_to_head", {
             "team_a": team_a, "team_b": team_b,            "format": format, "last_n": last_n,
-        })    @_agent.tool
+        })
+
+    @_agent.tool
     async def player_stats(
         ctx: RunContext[CricketDeps],
         player: str,
@@ -221,8 +264,24 @@ Rules:
                                             "strike_rate", "bat_matches"])
 
         return await _polars_fallback("top_players", {
-            "category": category, "format": format,            "season": season, "limit": limit,
+            "category": category, "format": format,
+            "season": season, "limit": limit,
         })
+
+    @_agent.tool
+    async def venue_stats(
+        ctx: RunContext[CricketDeps],
+        venue: str,
+        format: str = "",
+        last_n: int = 20,
+    ) -> str:
+        """Get venue stats: recent results, winner distribution, format breakdown."""
+        if ctx.deps.db_pool:
+            from ..db.queries import query_venue_stats
+            data = await query_venue_stats(ctx.deps.db_pool, venue, format, last_n)
+            if data.get("total_matches", 0) > 0:
+                return _format_venue_stats(data)
+        return f"No venue data found for '{venue}'."
 
     @_agent.tool
     async def semantic_search(
@@ -413,6 +472,73 @@ def _format_leaderboard(category: str, rows: list[dict], cols: list[str]) -> str
     return "\n".join(lines)
 
 
+def _format_venue_stats(data: dict) -> str:
+    lines = [f"## Venue Stats: {data.get('venue', 'Unknown')}\n"]
+    lines.append(f"**Total matches in data:** {data.get('total_matches', 0)}")
+    fmt_bd = data.get("format_breakdown", {})
+    if fmt_bd:
+        lines.append("**By format:** " + ", ".join(f"{k}: {v}" for k, v in fmt_bd.items()))
+    top_winners = data.get("top_winners") or []
+    if top_winners:
+        lines.append("\n**Most wins here:**")
+        for name, wins in top_winners:
+            lines.append(f"  - {name}: {wins}")
+    recent = data.get("recent") or []
+    if recent:
+        lines.append("\n**Recent results:**")
+        lines.append("| Date | Format | Match | Winner | Margin |")
+        lines.append("|------|--------|-------|--------|--------|")
+        for m in recent[:8]:
+            lines.append(
+                f"| {m.get('date','?')} | {m.get('format','?')} "
+                f"| {m.get('team_a','?')} vs {m.get('team_b','?')} "
+                f"| {m.get('winner','-')} | {m.get('margin','-')} |"
+            )
+    return "\n".join(lines)
+
+
+# ── RAG context injector ──────────────────────────────────────────────────────
+# Enriches the user prompt with Cricsheet ball-by-ball data (player form, venue
+# records, H2H, fantasy projections) BEFORE the agent sees it. This gives the
+# LLM ground-truth numbers to reason on instead of hallucinating stats.
+
+def _enrich_prompt_with_rag(prompt: str, ctx: dict) -> tuple[str, dict]:
+    """
+    Call build_rag_context() to fetch Cricsheet data for the prompt, then
+    prepend it to the prompt as a VERIFIED DATA block the LLM must trust.
+
+    Returns (enriched_prompt, enriched_ctx). If RAG fails or returns nothing,
+    the original prompt is returned unchanged.
+    """
+    try:
+        from ..services.rag_service import build_rag_context
+        enriched_ctx = build_rag_context(prompt, ctx or {})
+    except Exception as exc:
+        log.warning("RAG enrichment failed (non-fatal): %s", exc)
+        return prompt, ctx or {}
+
+    cricsheet_data = enriched_ctx.get("cricsheet_data", "")
+    if not cricsheet_data:
+        return prompt, enriched_ctx
+
+    # Truncate to keep prompt budget reasonable (~8K chars of RAG data max).
+    max_rag = 8000
+    if len(cricsheet_data) > max_rag:
+        cricsheet_data = cricsheet_data[:max_rag] + "\n...[truncated]"
+
+    enriched_prompt = (
+        "=== VERIFIED CRICSHEET DATA (ball-by-ball ground truth) ===\n"
+        f"{cricsheet_data}\n"
+        "=== END VERIFIED DATA ===\n\n"
+        "Use the VERIFIED CRICSHEET DATA above as your PRIMARY source. "
+        "Only call tools if you need data not present above. "
+        "Cite specific numbers from the verified data in your answer.\n\n"
+        f"User question: {prompt}"
+    )
+    log.info("RAG enriched prompt with %d chars of Cricsheet data", len(cricsheet_data))
+    return enriched_prompt, enriched_ctx
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def run(prompt: str, ctx: dict) -> AgentResult:
@@ -446,7 +572,6 @@ async def run(prompt: str, ctx: dict) -> AgentResult:
             ),            mode="circuit_breaker",
             intent="general",
         )
-
     t0 = time.monotonic()
 
     try:
@@ -457,7 +582,10 @@ async def run(prompt: str, ctx: dict) -> AgentResult:
             db_pool=pool,
             session_id=ctx.get("session_id", "default"),
         )
-        result = await agent.run(prompt, deps=deps)
+        # Inject Cricsheet RAG data into the prompt so the LLM grounds on
+        # real numbers (player form, venue, H2H, fantasy projections).
+        enriched_prompt, _ = _enrich_prompt_with_rag(prompt, ctx)
+        result = await agent.run(enriched_prompt, deps=deps)
 
         answer     = result.output if isinstance(result.output, str) else str(result.output)
         tools_used = _extract_tools_used(result)
@@ -525,7 +653,9 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
             db_pool=pool,
             session_id=ctx.get("session_id", "default"),
         )
-        async with agent.run_stream(prompt, deps=deps) as streamed:
+        # Inject Cricsheet RAG data so the streaming LLM grounds on real numbers.
+        enriched_prompt, _ = _enrich_prompt_with_rag(prompt, ctx)
+        async with agent.run_stream(enriched_prompt, deps=deps) as streamed:
             async for chunk in streamed.stream_text(delta=True):
                 yield chunk
 
