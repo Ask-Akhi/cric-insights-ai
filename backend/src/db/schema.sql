@@ -101,3 +101,79 @@ SELECT player, team, season, format, wickets, economy, bowling_avg, bowl_matches
 FROM player_season_stats
 WHERE wickets > 0
 ORDER BY wickets DESC;
+
+-- ── Phase 2: deeper analytical tables ─────────────────────────────────────────
+
+-- Pre-aggregated venue stats (fast lookup, avoids match_summary scan).
+CREATE TABLE IF NOT EXISTS venue_stats_agg (
+    venue               TEXT        NOT NULL,
+    format              TEXT        NOT NULL,
+    total_matches       INTEGER     NOT NULL DEFAULT 0,
+    avg_first_innings   NUMERIC(7,2),
+    avg_second_innings  NUMERIC(7,2),
+    toss_win_pct        NUMERIC(5,2),
+    chase_win_pct       NUMERIC(5,2),
+    bat_first_win_pct   NUMERIC(5,2),
+    highest_total       INTEGER,
+    lowest_total        INTEGER,
+    last_played         TEXT,
+    top_scorers_json    TEXT,
+    top_wicket_takers_json TEXT,
+    PRIMARY KEY (venue, format)
+);
+CREATE INDEX IF NOT EXISTS idx_vsa_venue ON venue_stats_agg (venue);
+
+-- Batter x Bowler head-to-head.
+CREATE TABLE IF NOT EXISTS batter_vs_bowler (
+    batter          TEXT        NOT NULL,
+    bowler          TEXT        NOT NULL,
+    format          TEXT        NOT NULL,
+    balls           INTEGER     NOT NULL DEFAULT 0,
+    runs            INTEGER     NOT NULL DEFAULT 0,
+    dismissals      INTEGER     NOT NULL DEFAULT 0,
+    fours           INTEGER     NOT NULL DEFAULT 0,
+    sixes           INTEGER     NOT NULL DEFAULT 0,
+    strike_rate     NUMERIC(7,2),
+    avg             NUMERIC(7,2),
+    PRIMARY KEY (batter, bowler, format)
+);
+CREATE INDEX IF NOT EXISTS idx_bvb_batter ON batter_vs_bowler (batter);
+CREATE INDEX IF NOT EXISTS idx_bvb_bowler ON batter_vs_bowler (bowler);
+
+-- Player performance at each venue.
+CREATE TABLE IF NOT EXISTS player_venue_stats (
+    player          TEXT        NOT NULL,
+    venue           TEXT        NOT NULL,
+    format          TEXT        NOT NULL,
+    innings         INTEGER     NOT NULL DEFAULT 0,
+    runs            INTEGER     NOT NULL DEFAULT 0,
+    balls_faced     INTEGER     NOT NULL DEFAULT 0,
+    avg             NUMERIC(7,2),
+    strike_rate     NUMERIC(7,2),
+    wickets         INTEGER     NOT NULL DEFAULT 0,
+    balls_bowled    INTEGER     NOT NULL DEFAULT 0,
+    runs_conceded   INTEGER     NOT NULL DEFAULT 0,
+    economy         NUMERIC(6,2),
+    PRIMARY KEY (player, venue, format)
+);
+CREATE INDEX IF NOT EXISTS idx_pvs_player ON player_venue_stats (player);
+CREATE INDEX IF NOT EXISTS idx_pvs_venue  ON player_venue_stats (venue);
+
+-- Rolling last-N-innings form per player.
+CREATE TABLE IF NOT EXISTS player_form_recent (
+    player          TEXT        NOT NULL,
+    format          TEXT        NOT NULL,
+    last_n          INTEGER     NOT NULL DEFAULT 10,
+    innings         INTEGER     NOT NULL DEFAULT 0,
+    runs            INTEGER     NOT NULL DEFAULT 0,
+    balls_faced     INTEGER     NOT NULL DEFAULT 0,
+    avg             NUMERIC(7,2),
+    strike_rate     NUMERIC(7,2),
+    fifties         INTEGER     NOT NULL DEFAULT 0,
+    hundreds        INTEGER     NOT NULL DEFAULT 0,
+    wickets         INTEGER     NOT NULL DEFAULT 0,
+    economy         NUMERIC(6,2),
+    updated_at      TEXT,
+    PRIMARY KEY (player, format)
+);
+CREATE INDEX IF NOT EXISTS idx_pfr_player ON player_form_recent (player);

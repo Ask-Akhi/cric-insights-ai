@@ -108,7 +108,8 @@ def _build_agent():
 
 DATA SOURCES (in priority order):
   1. VERIFIED CRICSHEET DATA block in the user prompt (ball-by-ball ground truth).
-  2. Tool calls: head_to_head, player_stats, recent_form, top_players, venue_stats, semantic_search, live_score.
+  2. Tool calls: head_to_head, player_stats, recent_form, top_players, venue_stats,
+     batter_vs_bowler, player_at_venue, player_form_recent, semantic_search, live_score.
   3. Web/grounded search (only when user enables it) - use for very recent news,
      injuries, playing XI, toss, pitch report.
 
@@ -119,9 +120,12 @@ GENERAL RULES:
 4. Use player_stats(last_n_years=N, format=..., season=...) for player queries.
 5. Use recent_form for "how has [team] been playing lately".
 6. Use top_players for leaderboards.
-7. Use venue_stats for venue/pitch analysis.
-8. Use semantic_search for narrative queries or when other tools return nothing.
-9. Use live_score only for live/ongoing match queries.
+7. Use venue_stats for venue/pitch analysis (1st/2nd inn avg, toss/chase %).
+8. Use batter_vs_bowler for the "3 Key Matchups" section of a prediction.
+9. Use player_at_venue to see how a player performs at a specific ground.
+10. Use player_form_recent for rolling last-10-innings hot/cold form.
+11. Use semantic_search for narrative queries or when other tools return nothing.
+12. Use live_score only for live/ongoing match queries.
 10. If no data is found, say so honestly - do NOT hallucinate stats.
 11. Always cite specific numbers. Show a markdown table when returning multiple rows.
 
@@ -266,9 +270,7 @@ Be concise, specific, and numbers-first. Never invent stats.
         return await _polars_fallback("top_players", {
             "category": category, "format": format,
             "season": season, "limit": limit,
-        })
-
-    @_agent.tool
+        })    @_agent.tool
     async def venue_stats(
         ctx: RunContext[CricketDeps],
         venue: str,
@@ -277,11 +279,60 @@ Be concise, specific, and numbers-first. Never invent stats.
     ) -> str:
         """Get venue stats: recent results, winner distribution, format breakdown."""
         if ctx.deps.db_pool:
-            from ..db.queries import query_venue_stats
+            # Prefer pre-aggregated table (Phase 2)
+            from ..db.queries import query_venue_stats_agg, query_venue_stats
+            agg_rows = await query_venue_stats_agg(ctx.deps.db_pool, venue, format)
+            if agg_rows:
+                return _format_venue_stats_agg(agg_rows)
+            # Fallback to on-the-fly aggregation from match_summary
             data = await query_venue_stats(ctx.deps.db_pool, venue, format, last_n)
             if data.get("total_matches", 0) > 0:
                 return _format_venue_stats(data)
         return f"No venue data found for '{venue}'."
+
+    @_agent.tool
+    async def batter_vs_bowler(
+        ctx: RunContext[CricketDeps],
+        batter: str,
+        bowler: str,
+        format: str = "",
+    ) -> str:
+        """Get head-to-head stats between a batter and bowler (balls, runs, dismissals, SR, avg)."""
+        if ctx.deps.db_pool:
+            from ..db.queries import query_batter_vs_bowler
+            rows = await query_batter_vs_bowler(ctx.deps.db_pool, batter, bowler, format)
+            if rows:
+                return _format_bvb(rows)
+        return f"No batter-vs-bowler data for {batter} vs {bowler}."
+
+    @_agent.tool
+    async def player_at_venue(
+        ctx: RunContext[CricketDeps],
+        player: str,
+        venue: str,
+        format: str = "",
+    ) -> str:
+        """Get a player's performance record at a specific venue."""
+        if ctx.deps.db_pool:
+            from ..db.queries import query_player_at_venue
+            rows = await query_player_at_venue(ctx.deps.db_pool, player, venue, format)
+            if rows:
+                return _format_player_venue(rows)
+        return f"No record of {player} at {venue}."
+
+    @_agent.tool
+    async def player_form_recent(
+        ctx: RunContext[CricketDeps],
+        player: str,
+        format: str = "",
+    ) -> str:
+        """Rolling last-N-innings form for a player (runs, SR, avg, 50s, 100s, wkts, econ)."""
+        if ctx.deps.db_pool:
+            from ..db.queries import query_player_form_recent
+            rows = await query_player_form_recent(ctx.deps.db_pool, player, format)
+            if rows:
+                return _format_player_form_recent(rows)
+        return f"No recent form data for {player}."
 
     @_agent.tool
     async def semantic_search(
@@ -494,6 +545,64 @@ def _format_venue_stats(data: dict) -> str:
                 f"| {m.get('team_a','?')} vs {m.get('team_b','?')} "
                 f"| {m.get('winner','-')} | {m.get('margin','-')} |"
             )
+    return "\n".join(lines)
+
+
+def _format_venue_stats_agg(rows: list[dict]) -> str:
+    lines = ["## Venue Stats (pre-aggregated)\n"]
+    lines.append("| Venue | Format | Matches | 1st Inn Avg | 2nd Inn Avg | Toss Win % | Chase Win % | Bat-First Win % | High | Low |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
+    for r in rows:
+        lines.append(
+            f"| {r.get('venue','?')} | {r.get('format','?')} | {r.get('total_matches',0)} "
+            f"| {r.get('avg_first_innings') or '-'} | {r.get('avg_second_innings') or '-'} "
+            f"| {r.get('toss_win_pct') or '-'} | {r.get('chase_win_pct') or '-'} "
+            f"| {r.get('bat_first_win_pct') or '-'} "
+            f"| {r.get('highest_total') or '-'} | {r.get('lowest_total') or '-'} |"
+        )
+    return "\n".join(lines)
+
+
+def _format_bvb(rows: list[dict]) -> str:
+    lines = ["## Batter vs Bowler\n"]
+    lines.append("| Batter | Bowler | Format | Balls | Runs | Dismissals | SR | Avg | 4s | 6s |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
+    for r in rows:
+        lines.append(
+            f"| {r.get('batter','?')} | {r.get('bowler','?')} | {r.get('format','?')} "
+            f"| {r.get('balls',0)} | {r.get('runs',0)} | {r.get('dismissals',0)} "
+            f"| {r.get('strike_rate') or '-'} | {r.get('avg') or '-'} "
+            f"| {r.get('fours',0)} | {r.get('sixes',0)} |"
+        )
+    return "\n".join(lines)
+
+
+def _format_player_venue(rows: list[dict]) -> str:
+    lines = ["## Player at Venue\n"]
+    lines.append("| Player | Venue | Format | Inns | Runs | Avg | SR | Wkts | Econ |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    for r in rows:
+        lines.append(
+            f"| {r.get('player','?')} | {r.get('venue','?')} | {r.get('format','?')} "
+            f"| {r.get('innings',0)} | {r.get('runs',0)} "
+            f"| {r.get('avg') or '-'} | {r.get('strike_rate') or '-'} "
+            f"| {r.get('wickets',0)} | {r.get('economy') or '-'} |"
+        )
+    return "\n".join(lines)
+
+
+def _format_player_form_recent(rows: list[dict]) -> str:
+    lines = ["## Player Recent Form (rolling)\n"]
+    lines.append("| Player | Format | Last N | Inns | Runs | Avg | SR | 50s | 100s | Wkts | Econ |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    for r in rows:
+        lines.append(
+            f"| {r.get('player','?')} | {r.get('format','?')} | {r.get('last_n',10)} "
+            f"| {r.get('innings',0)} | {r.get('runs',0)} "
+            f"| {r.get('avg') or '-'} | {r.get('strike_rate') or '-'} "
+            f"| {r.get('fifties',0)} | {r.get('hundreds',0)} "
+            f"| {r.get('wickets',0)} | {r.get('economy') or '-'} |"
+        )
     return "\n".join(lines)
 
 

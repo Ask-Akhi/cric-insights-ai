@@ -341,6 +341,251 @@ def build_match_summaries(lf: pl.LazyFrame) -> pl.DataFrame:
     return summaries
 
 
+# ── Phase 2 builders ──────────────────────────────────────────────────────────
+
+def build_venue_stats(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Pre-aggregate venue stats: totals, 1st/2nd-inn avg, toss/chase win %."""
+    log.info("Aggregating venue stats …")
+    cols = lf.schema.names()
+    if "match_type" in cols and "format" not in cols:
+        lf = lf.rename({"match_type": "format"})
+
+    # Per-innings totals (runs scored in that innings)
+    inns_totals = (
+        lf.filter(pl.col("venue").is_not_null() & pl.col("innings").is_in([1, 2]))
+        .group_by(["match_id", "venue", "format", "innings"])
+        .agg(
+            (pl.col("runs_off_bat").fill_null(0) + pl.col("extras").fill_null(0))
+                .sum().alias("inns_runs")
+        )
+        .collect(streaming=True)
+    )
+
+    first = inns_totals.filter(pl.col("innings") == 1) \
+        .rename({"inns_runs": "first_inns"}) \
+        .drop("innings")
+    second = inns_totals.filter(pl.col("innings") == 2) \
+        .rename({"inns_runs": "second_inns"}) \
+        .drop(["innings", "venue", "format"])
+
+    per_match = first.join(second, on="match_id", how="left")
+
+    # Match-level info for toss/winner
+    match_meta = (
+        lf.filter(pl.col("venue").is_not_null())
+        .select(["match_id", "venue", "format", "winner", "toss_winner",
+                 "toss_decision", "start_date", "batting_team", "innings"])
+        .filter(pl.col("innings") == 2)
+        .unique("match_id")
+        .rename({"batting_team": "chaser"})
+        .drop("innings")
+        .collect(streaming=True)
+    )
+
+    combined = per_match.join(
+        match_meta.select(["match_id", "winner", "toss_winner",
+                           "toss_decision", "start_date", "chaser"]),
+        on="match_id", how="left"
+    )
+
+    # Flags
+    combined = combined.with_columns([
+        (pl.col("winner") == pl.col("chaser")).alias("is_chase_win"),
+        (pl.col("winner") == pl.col("toss_winner")).alias("is_toss_win"),
+        pl.col("winner").is_not_null().alias("has_result"),
+    ])
+
+    agg = (
+        combined.group_by(["venue", "format"])
+        .agg([
+            pl.col("match_id").count().alias("total_matches"),
+            pl.col("first_inns").mean().round(2).alias("avg_first_innings"),
+            pl.col("second_inns").mean().round(2).alias("avg_second_innings"),
+            pl.col("first_inns").max().alias("highest_total"),
+            pl.col("first_inns").min().alias("lowest_total"),
+            (pl.col("is_toss_win").cast(pl.Float64).mean() * 100)
+                .round(2).alias("toss_win_pct"),
+            (pl.col("is_chase_win").cast(pl.Float64).mean() * 100)
+                .round(2).alias("chase_win_pct"),
+            pl.col("start_date").max().alias("last_played"),
+        ])
+        .with_columns(
+            (100.0 - pl.col("chase_win_pct")).alias("bat_first_win_pct")
+        )
+    )
+
+    log.info("Venue stats: %d rows", len(agg))
+    return agg
+
+
+def build_batter_vs_bowler(lf: pl.LazyFrame, min_balls: int = 6) -> pl.DataFrame:
+    """Aggregate ball-by-ball into batter x bowler head-to-head per format."""
+    log.info("Aggregating batter vs bowler …")
+    cols = lf.schema.names()
+    if "match_type" in cols and "format" not in cols:
+        lf = lf.rename({"match_type": "format"})
+
+    agg = (
+        lf.filter(pl.col("batter").is_not_null() & pl.col("bowler").is_not_null())
+        .group_by(["batter", "bowler", "format"])
+        .agg([
+            pl.col("runs_off_bat").count().alias("balls"),
+            pl.col("runs_off_bat").sum().alias("runs"),
+            (pl.col("runs_off_bat") == 4).sum().alias("fours"),
+            (pl.col("runs_off_bat") == 6).sum().alias("sixes"),
+            (pl.col("player_dismissed") == pl.col("batter")).sum().alias("dismissals"),
+        ])
+        .filter(pl.col("balls") >= min_balls)
+        .with_columns([
+            pl.when(pl.col("balls") > 0)
+              .then(pl.col("runs").cast(pl.Float64) / pl.col("balls") * 100)
+              .otherwise(None).round(2).alias("strike_rate"),
+            pl.when(pl.col("dismissals") > 0)
+              .then(pl.col("runs").cast(pl.Float64) / pl.col("dismissals"))
+              .otherwise(None).round(2).alias("avg"),
+        ])
+        .collect(streaming=True)
+    )
+    log.info("Batter vs bowler: %d rows", len(agg))
+    return agg
+
+
+def build_player_venue_stats(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Aggregate player performance at each venue (batting + bowling)."""
+    log.info("Aggregating player venue stats …")
+    cols = lf.schema.names()
+    if "match_type" in cols and "format" not in cols:
+        lf = lf.rename({"match_type": "format"})
+
+    batting = (
+        lf.filter(pl.col("batter").is_not_null() & pl.col("venue").is_not_null())
+        .group_by(["batter", "venue", "format"])
+        .agg([
+            pl.col("match_id").n_unique().alias("innings"),
+            pl.col("runs_off_bat").sum().alias("runs"),
+            pl.col("runs_off_bat").count().alias("balls_faced"),
+            (pl.col("player_dismissed") == pl.col("batter")).sum().alias("dismissals"),
+        ])
+        .rename({"batter": "player"})
+        .with_columns([
+            pl.when(pl.col("dismissals") > 0)
+              .then(pl.col("runs").cast(pl.Float64) / pl.col("dismissals"))
+              .otherwise(None).round(2).alias("avg"),
+            pl.when(pl.col("balls_faced") > 0)
+              .then(pl.col("runs").cast(pl.Float64) / pl.col("balls_faced") * 100)
+              .otherwise(None).round(2).alias("strike_rate"),
+        ])
+        .drop("dismissals")
+        .collect(streaming=True)
+    )
+
+    bowling = (
+        lf.filter(pl.col("bowler").is_not_null() & pl.col("venue").is_not_null())
+        .group_by(["bowler", "venue", "format"])
+        .agg([
+            pl.col("wicket_type").is_not_null().sum().alias("wickets"),
+            pl.col("runs_off_bat").count().alias("balls_bowled"),
+            (pl.col("runs_off_bat") + pl.col("extras").fill_null(0))
+                .sum().alias("runs_conceded"),
+        ])
+        .rename({"bowler": "player"})
+        .with_columns(
+            pl.when(pl.col("balls_bowled") > 0)
+              .then(pl.col("runs_conceded").cast(pl.Float64) /
+                    (pl.col("balls_bowled") / 6))
+              .otherwise(None).round(2).alias("economy")
+        )
+        .collect(streaming=True)
+    )
+
+    merged = batting.join(
+        bowling, on=["player", "venue", "format"], how="outer", coalesce=True
+    ).fill_null(0)
+    log.info("Player venue stats: %d rows", len(merged))
+    return merged
+
+
+def build_player_form_recent(lf: pl.LazyFrame, last_n: int = 10) -> pl.DataFrame:
+    """Rolling last-N-innings form per player per format."""
+    log.info("Building player form recent (last %d innings) …", last_n)
+    cols = lf.schema.names()
+    if "match_type" in cols and "format" not in cols:
+        lf = lf.rename({"match_type": "format"})
+
+    # Batting: one row per (player, match, format)
+    bat_match = (
+        lf.filter(pl.col("batter").is_not_null())
+        .group_by(["batter", "match_id", "format", "start_date"])
+        .agg([
+            pl.col("runs_off_bat").sum().alias("m_runs"),
+            pl.col("runs_off_bat").count().alias("m_balls"),
+            (pl.col("player_dismissed") == pl.col("batter")).sum().alias("m_out"),
+        ])
+        .sort("start_date", descending=True)
+        .group_by(["batter", "format"])
+        .head(last_n)
+        .group_by(["batter", "format"])
+        .agg([
+            pl.col("m_runs").count().alias("innings"),
+            pl.col("m_runs").sum().alias("runs"),
+            pl.col("m_balls").sum().alias("balls_faced"),
+            pl.col("m_out").sum().alias("dismissals"),
+            (pl.col("m_runs") >= 50).sum().alias("fifties"),
+            (pl.col("m_runs") >= 100).sum().alias("hundreds"),
+        ])
+        .rename({"batter": "player"})
+        .with_columns([
+            pl.when(pl.col("dismissals") > 0)
+              .then(pl.col("runs").cast(pl.Float64) / pl.col("dismissals"))
+              .otherwise(None).round(2).alias("avg"),
+            pl.when(pl.col("balls_faced") > 0)
+              .then(pl.col("runs").cast(pl.Float64) / pl.col("balls_faced") * 100)
+              .otherwise(None).round(2).alias("strike_rate"),
+        ])
+        .drop("dismissals")
+        .collect(streaming=True)
+    )
+
+    # Bowling: last N match-level figures
+    bowl_match = (
+        lf.filter(pl.col("bowler").is_not_null())
+        .group_by(["bowler", "match_id", "format", "start_date"])
+        .agg([
+            pl.col("wicket_type").is_not_null().sum().alias("m_wkts"),
+            pl.col("runs_off_bat").count().alias("m_balls_bowled"),
+            (pl.col("runs_off_bat") + pl.col("extras").fill_null(0))
+                .sum().alias("m_runs_conceded"),
+        ])
+        .sort("start_date", descending=True)
+        .group_by(["bowler", "format"])
+        .head(last_n)
+        .group_by(["bowler", "format"])
+        .agg([
+            pl.col("m_wkts").sum().alias("wickets"),
+            pl.col("m_balls_bowled").sum().alias("tot_balls"),
+            pl.col("m_runs_conceded").sum().alias("tot_runs"),
+        ])
+        .rename({"bowler": "player"})
+        .with_columns(
+            pl.when(pl.col("tot_balls") > 0)
+              .then(pl.col("tot_runs").cast(pl.Float64) /
+                    (pl.col("tot_balls") / 6))
+              .otherwise(None).round(2).alias("economy")
+        )
+        .drop(["tot_balls", "tot_runs"])
+        .collect(streaming=True)
+    )
+
+    merged = bat_match.join(
+        bowl_match, on=["player", "format"], how="outer", coalesce=True
+    ).fill_null(0).with_columns(
+        pl.lit(datetime.utcnow().isoformat()).alias("updated_at"),
+        pl.lit(last_n).alias("last_n"),
+    )
+    log.info("Player form recent: %d rows", len(merged))
+    return merged
+
+
 # ── Upsert helpers ────────────────────────────────────────────────────────────
 
 async def upsert_player_stats(pool, df: pl.DataFrame) -> None:
@@ -530,10 +775,123 @@ async def _embed_gemini(pool, rows: list) -> None:
         )
         vec = result["embedding"]
         await pool.execute(
-            "UPDATE match_summary SET embedding = $1::vector WHERE match_id = $2",
-            vec, r["match_id"]
+            "UPDATE match_summary SET embedding = $1::vector WHERE match_id = $2",            vec, r["match_id"]
         )
     log.info("Embedded %d summaries via Gemini", len(rows))
+
+
+# ── Phase 2 upserts ───────────────────────────────────────────────────────────
+
+async def upsert_venue_stats(pool, df: pl.DataFrame) -> None:
+    await pool.execute("TRUNCATE TABLE venue_stats_agg")
+    sql = """
+        INSERT INTO venue_stats_agg
+            (venue, format, total_matches, avg_first_innings, avg_second_innings,
+             toss_win_pct, chase_win_pct, bat_first_win_pct,
+             highest_total, lowest_total, last_played)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    """
+    data = []
+    for r in df.to_dicts():
+        if not r.get("venue"):
+            continue
+        data.append((
+            r["venue"], str(r.get("format") or ""),
+            int(r.get("total_matches") or 0),
+            float(r["avg_first_innings"]) if r.get("avg_first_innings") is not None else None,
+            float(r["avg_second_innings"]) if r.get("avg_second_innings") is not None else None,
+            float(r["toss_win_pct"]) if r.get("toss_win_pct") is not None else None,
+            float(r["chase_win_pct"]) if r.get("chase_win_pct") is not None else None,
+            float(r["bat_first_win_pct"]) if r.get("bat_first_win_pct") is not None else None,
+            int(r["highest_total"]) if r.get("highest_total") is not None else None,
+            int(r["lowest_total"]) if r.get("lowest_total") is not None else None,
+            str(r["last_played"]) if r.get("last_played") else None,
+        ))
+    await pool.executemany(sql, data)
+    log.info("Upserted %d venue_stats_agg rows", len(data))
+
+
+async def upsert_batter_vs_bowler(pool, df: pl.DataFrame) -> None:
+    await pool.execute("TRUNCATE TABLE batter_vs_bowler")
+    sql = """
+        INSERT INTO batter_vs_bowler
+            (batter, bowler, format, balls, runs, dismissals,
+             fours, sixes, strike_rate, avg)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    """
+    data = []
+    for r in df.to_dicts():
+        if not r.get("batter") or not r.get("bowler"):
+            continue
+        data.append((
+            r["batter"], r["bowler"], str(r.get("format") or ""),
+            int(r.get("balls") or 0), int(r.get("runs") or 0),
+            int(r.get("dismissals") or 0),
+            int(r.get("fours") or 0), int(r.get("sixes") or 0),
+            float(r["strike_rate"]) if r.get("strike_rate") is not None else None,
+            float(r["avg"]) if r.get("avg") is not None else None,
+        ))
+    # Batch — batter_vs_bowler can be huge, so chunk
+    BATCH = 5000
+    for i in range(0, len(data), BATCH):
+        await pool.executemany(sql, data[i:i+BATCH])
+    log.info("Upserted %d batter_vs_bowler rows", len(data))
+
+
+async def upsert_player_venue_stats(pool, df: pl.DataFrame) -> None:
+    await pool.execute("TRUNCATE TABLE player_venue_stats")
+    sql = """
+        INSERT INTO player_venue_stats
+            (player, venue, format, innings, runs, balls_faced, avg, strike_rate,
+             wickets, balls_bowled, runs_conceded, economy)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    """
+    data = []
+    for r in df.to_dicts():
+        if not r.get("player") or not r.get("venue"):
+            continue
+        data.append((
+            r["player"], r["venue"], str(r.get("format") or ""),
+            int(r.get("innings") or 0), int(r.get("runs") or 0),
+            int(r.get("balls_faced") or 0),
+            float(r["avg"]) if r.get("avg") else None,
+            float(r["strike_rate"]) if r.get("strike_rate") else None,
+            int(r.get("wickets") or 0), int(r.get("balls_bowled") or 0),
+            int(r.get("runs_conceded") or 0),
+            float(r["economy"]) if r.get("economy") else None,
+        ))
+    BATCH = 5000
+    for i in range(0, len(data), BATCH):
+        await pool.executemany(sql, data[i:i+BATCH])
+    log.info("Upserted %d player_venue_stats rows", len(data))
+
+
+async def upsert_player_form_recent(pool, df: pl.DataFrame) -> None:
+    await pool.execute("TRUNCATE TABLE player_form_recent")
+    sql = """
+        INSERT INTO player_form_recent
+            (player, format, last_n, innings, runs, balls_faced,
+             avg, strike_rate, fifties, hundreds, wickets, economy, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    """
+    data = []
+    for r in df.to_dicts():
+        if not r.get("player"):
+            continue
+        data.append((
+            r["player"], str(r.get("format") or ""),
+            int(r.get("last_n") or 10),
+            int(r.get("innings") or 0), int(r.get("runs") or 0),
+            int(r.get("balls_faced") or 0),
+            float(r["avg"]) if r.get("avg") else None,
+            float(r["strike_rate"]) if r.get("strike_rate") else None,
+            int(r.get("fifties") or 0), int(r.get("hundreds") or 0),
+            int(r.get("wickets") or 0),
+            float(r["economy"]) if r.get("economy") else None,
+            str(r.get("updated_at") or datetime.utcnow().isoformat()),
+        ))
+    await pool.executemany(sql, data)
+    log.info("Upserted %d player_form_recent rows", len(data))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -560,6 +918,20 @@ async def run_ingest() -> None:
     await upsert_recent_form(pool, form_df)
     await upsert_match_summaries(pool, summary_df)
     await embed_match_summaries(pool)
+
+    # ── Phase 2 ──────────────────────────────────────────────────────────
+    try:
+        venue_df        = build_venue_stats(lf)
+        bvb_df          = build_batter_vs_bowler(lf)
+        player_venue_df = build_player_venue_stats(lf)
+        form_recent_df  = build_player_form_recent(lf)
+
+        await upsert_venue_stats(pool, venue_df)
+        await upsert_batter_vs_bowler(pool, bvb_df)
+        await upsert_player_venue_stats(pool, player_venue_df)
+        await upsert_player_form_recent(pool, form_recent_df)
+    except Exception as exc:
+        log.warning("Phase 2 aggregation failed (non-fatal): %s", exc)
 
     await pool.close()
     log.info("✅ Ingest complete — %s", datetime.utcnow().isoformat())

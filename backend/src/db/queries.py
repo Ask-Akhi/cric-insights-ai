@@ -248,8 +248,7 @@ async def query_venue_stats(
             "venue": venue,
             "total_matches": len(matches),
             "recent": matches[:10],
-            "top_winners": top_winners,
-            "format_breakdown": fmt_counts,
+            "top_winners": top_winners,            "format_breakdown": fmt_counts,
         }
     except Exception as exc:
         log.warning("query_venue_stats failed: %s", exc)
@@ -260,3 +259,105 @@ async def query_venue_stats(
             "top_winners": [],
             "format_breakdown": {},
         }
+
+
+# -- Phase 2: venue_stats_agg (pre-aggregated, fast) ------------------------
+
+async def query_venue_stats_agg(
+    pool, venue: str, fmt: str = ""
+) -> list[dict[str, Any]]:
+    """Pre-aggregated venue stats: 1st/2nd innings avg, toss/chase %, totals."""
+    try:
+        sql = """
+            SELECT venue, format, total_matches,
+                   avg_first_innings, avg_second_innings,
+                   toss_win_pct, chase_win_pct, bat_first_win_pct,
+                   highest_total, lowest_total, last_played
+            FROM venue_stats_agg
+            WHERE venue ILIKE $1
+        """
+        args: list[Any] = [f"%{venue}%"]
+        if fmt:
+            sql += f" AND format ILIKE ${len(args)+1}"
+            args.append(fmt)
+        sql += " ORDER BY total_matches DESC LIMIT 5"
+        rows = await pool.fetch(sql, *args)
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        log.warning("query_venue_stats_agg failed: %s", exc)
+        return []
+
+
+# -- Phase 2: batter vs bowler ---------------------------------------------
+
+async def query_batter_vs_bowler(
+    pool, batter: str, bowler: str, fmt: str = ""
+) -> list[dict[str, Any]]:
+    """Head-to-head stats between a batter and a bowler."""
+    try:
+        sql = """
+            SELECT batter, bowler, format, balls, runs, dismissals,
+                   fours, sixes, strike_rate, avg
+            FROM batter_vs_bowler
+            WHERE batter ILIKE $1 AND bowler ILIKE $2
+        """
+        args: list[Any] = [f"%{batter}%", f"%{bowler}%"]
+        if fmt:
+            sql += f" AND format ILIKE ${len(args)+1}"
+            args.append(fmt)
+        sql += " ORDER BY balls DESC LIMIT 10"
+        rows = await pool.fetch(sql, *args)
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        log.warning("query_batter_vs_bowler failed: %s", exc)
+        return []
+
+
+# -- Phase 2: player at venue ----------------------------------------------
+
+async def query_player_at_venue(
+    pool, player: str, venue: str, fmt: str = ""
+) -> list[dict[str, Any]]:
+    """Player performance at a specific venue (batting + bowling)."""
+    try:
+        sql = """
+            SELECT player, venue, format, innings, runs, balls_faced,
+                   avg, strike_rate, wickets, balls_bowled, runs_conceded, economy
+            FROM player_venue_stats
+            WHERE player ILIKE $1 AND venue ILIKE $2
+        """
+        args: list[Any] = [f"%{player}%", f"%{venue}%"]
+        if fmt:
+            sql += f" AND format ILIKE ${len(args)+1}"
+            args.append(fmt)
+        sql += " ORDER BY innings DESC LIMIT 10"
+        rows = await pool.fetch(sql, *args)
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        log.warning("query_player_at_venue failed: %s", exc)
+        return []
+
+
+# -- Phase 2: player rolling form ------------------------------------------
+
+async def query_player_form_recent(
+    pool, player: str, fmt: str = ""
+) -> list[dict[str, Any]]:
+    """Rolling last-N-innings form for a player."""
+    try:
+        sql = """
+            SELECT player, format, last_n, innings, runs, balls_faced,
+                   avg, strike_rate, fifties, hundreds, wickets, economy, updated_at
+            FROM player_form_recent
+            WHERE player ILIKE $1
+        """
+        args: list[Any] = [f"%{player}%"]
+        if fmt:
+            sql += f" AND format ILIKE ${len(args)+1}"
+            args.append(fmt)
+        sql += " ORDER BY runs DESC LIMIT 5"
+        rows = await pool.fetch(sql, *args)
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        log.warning("query_player_form_recent failed: %s", exc)
+        return []
