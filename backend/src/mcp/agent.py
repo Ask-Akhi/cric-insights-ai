@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 PydanticAI Agent — replaces orchestrator.py.
 
@@ -104,13 +105,14 @@ def _build_agent():
             provider=GoogleProvider(api_key=settings.gemini_api_key),
         )
 
-    # ── System prompt ─────────────────────────────────────────────────────────    SYSTEM = """You are Cricket Insights AI — an expert cricket analyst assistant.
+    # -- System prompt -------------------------------------------------------
+    SYSTEM = """You are Cricket Insights AI - an expert cricket analyst assistant.
 
 Rules:
 1. ALWAYS call at least one tool before answering.
 2. Use head_to_head for match-up queries ("MI vs CSK", "India vs Australia").
 3. Use player_stats for individual player queries.
-   - For "last N years" queries, pass last_n_years=N (e.g. "last 2 years" → last_n_years=2).
+   - For "last N years" queries, pass last_n_years=N (e.g. "last 2 years" -> last_n_years=2).
    - For format-specific queries, pass format="T20" / "ODI" / "Test".
    - For a specific season, pass season="2024".
 4. Use recent_form for "how has [team] been playing lately".
@@ -118,7 +120,7 @@ Rules:
 6. Use semantic_search for complex narrative queries or when other tools return no data.
 7. Use live_score only for live/ongoing match queries.
 8. Be concise and factual. Cite specific numbers from tool results.
-9. If a tool returns no data, say so honestly — do not hallucinate statistics.
+9. If a tool returns no data, say so honestly - do not hallucinate statistics.
 10. Always show a stat table when multiple seasons/formats are returned.
 """
     _agent = Agent(
@@ -502,7 +504,8 @@ async def stream(prompt: str, ctx: dict) -> AsyncIterator[str]:
     Stream the agent response token by token.
     Used by the SSE /api/ask/stream endpoint.
     Yields string chunks as they arrive from the LLM.
-    """    if not _check_pydantic_ai():
+    """
+    if not _check_pydantic_ai():
         # Fallback: run non-streaming and yield the full answer at once
         result = await run(prompt, ctx)
         yield result.answer
